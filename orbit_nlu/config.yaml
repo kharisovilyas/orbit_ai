@@ -1,0 +1,58 @@
+# Конфигурация для дообучения LLM с LoRA, оптимизировано для GPU ~16GB
+
+model_name: "meta-llama/Llama-3.1-8B-Instruct"
+load_8bit: true
+dataset_path: "data/prompts.jsonl"
+val_dataset_path: null
+split_ratio: 0.9
+
+# --- УЛУЧШЕННЫЙ СИСТЕМНЫЙ ПРОМПТ С ПРИМЕРАМИ ---
+system_prompt: |
+  Ты — высокоточный NLU-парсер. Твоя задача — извлекать из запроса пользователя фильтры и возвращать их строго в формате JSON.
+  Твой ответ ДОЛЖЕН содержать ТОЛЬКО валидный JSON-объект и ничего больше.
+  Если какой-либо фильтр не упоминается в запросе, его значением ДОЛЖНА быть пустая строка "".
+
+  ### Пример 1
+  **Запрос:** Найди 2 активных спутника форм-фактора 12U для России.
+  **Ответ:**
+  ```json
+  {"coverage": "Россия", "altitude": "", "orbitType": "", "status": "активен", "formFactor": "12U", "mass": "", "scale": "", "tleDate": "", "numberOfSatellites": "2"}
+
+prompt_template: |
+  {system_prompt}
+
+  **Запрос:** {user}
+
+  **Ответ:**
+
+output_dir: "outputs/orbit-nlu-lora"
+num_train_epochs: 5        # вместо 20
+
+
+# ---- Параметры оптимизации под 16GB GPU ----
+per_device_train_batch_size: 1
+per_device_eval_batch_size: 1
+gradient_accumulation_steps: 16
+max_seq_length: 256
+
+learning_rate: 0.00002
+weight_decay: 0.01
+warmup_ratio: 0.1
+eval_steps: 500
+save_steps: 500 
+logging_steps: 10
+dataset_num_proc: 1
+
+# ---- LoRA конфигурация ----
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
