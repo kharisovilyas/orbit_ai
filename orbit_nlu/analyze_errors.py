@@ -10,6 +10,7 @@ from pathlib import Path
 from collections import Counter
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from peft import PeftModel
+from tqdm import tqdm
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
@@ -118,7 +119,7 @@ def main():
     error_counter = Counter()
 
     # 3. Инференс
-    for item in test_set:
+    for item in tqdm(test_set):
         user_text = item['prompt']
         gt_filters = sanitize_filters(item.get('filters', {})) # Нормализуем GT тоже
         
