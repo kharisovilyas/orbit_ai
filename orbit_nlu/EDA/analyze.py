@@ -11,10 +11,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent  # Это папка orbit_nlu
 DATA_FILE = BASE_DIR / "data" / "prompts.jsonl"
 IMG_OUTPUT_DIR = BASE_DIR / "EDA"  # Куда сохранять графики
 
-# Для токенизации (можно заменить на путь к Llama-3, если есть доступ и веса)
 # Используем distilbert как легкую альтернативу для подсчета токенов,
 # так как токенайзеры Llama требуют логина в HuggingFace.
-MODEL_NAME = "distilbert-base-multilingual-cased" 
+MODEL_NAME = "meta-llama/Meta-Llama-3-8B" 
 
 def load_data(filepath):
     """Загрузка JSONL файла в DataFrame с разворачиванием фильтров."""
