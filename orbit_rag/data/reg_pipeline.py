@@ -34,7 +34,7 @@ class Config:
     # Модели
     embedding_model: str = "sentence-transformers/all-mpnet-base-v2"
     llm_model: str = "llama-3.3-70b-versatile"  # Groq
-    llm_api_key: str = "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"
+
     llm_base_url: str = "https://api.groq.com/openai/v1"
 
     # Параметры
