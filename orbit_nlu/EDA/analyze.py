@@ -13,7 +13,7 @@ IMG_OUTPUT_DIR = BASE_DIR / "EDA"  # Куда сохранять графики
 
 # Используем distilbert как легкую альтернативу для подсчета токенов,
 # так как токенайзеры Llama требуют логина в HuggingFace.
-MODEL_NAME = "meta-llama/Meta-Llama-3-8B" 
+MODEL_NAME = "meta-llama/Llama-3.1-8B-Instruct" 
 
 def load_data(filepath):
     """Загрузка JSONL файла в DataFrame с разворачиванием фильтров."""
