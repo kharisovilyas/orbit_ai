@@ -167,7 +167,7 @@ def main():
     model.eval()
     logger.info("Модель готова к тесту.")
 
-    # 3. Подготовка данных (последние 10%)
+    # 3. Подготовка данных (последние 0.5%)
     data_path = Path("orbit_nlu/data/prompts.jsonl")
     if not data_path.exists(): data_path = Path("prompts.jsonl")
     if not data_path.exists(): data_path = Path("data/prompts.jsonl")
