@@ -101,46 +101,62 @@ class LLMProcessor:
         self.client = openai.OpenAI(base_url=config.llm_base_url, api_key=config.llm_api_key)
 
     def refine_filters(self, query: str, context_docs: List[Dict]) -> Dict:
-        """
-        Генерирует идеальный JSON для запроса, опираясь на контекст (few-shot RAG).
-        """
-        # Формируем Few-Shot примеры из найденного контекста
+        # Формируем промпт (без изменений)
         examples = ""
         for i, res in enumerate(context_docs, 1):
             doc = res["document"]
             examples += f"Пример {i}:\nЗапрос: {doc['text']}\nОтвет JSON: {json.dumps(doc['json'], ensure_ascii=False)}\n\n"
 
-        prompt = f"""Ты эксперт по извлечению параметров спутников (NER).
-Твоя задача: Исправить и дополнить JSON-фильтры для запроса пользователя.
-В исходных данных могут быть ошибки. Ты должен создать ИДЕАЛЬНУЮ разметку.
-
-Правила:
-1. `status`: если сказано "неактивный", "сломан", "мусор" -> "неактивен". Иначе (если не указано или "актив") -> "активен".
-2. `coverage`: переводи названия городов/стран в стандарт (КНР -> Китай, РФ -> Россия, Москва -> Москва).
+        prompt = f"""Ты эксперт по извлечению параметров спутников.
+Задача: Исправить JSON-фильтры.
+1. `status`: "неактивный"/"сломан" -> "неактивен". Иначе -> "активен".
+2. `coverage`: КНР->Китай, РФ->Россия.
 3. `orbitType`: GEO, LEO, MEO, SSO, HEO, Molniya.
-4. `altitude`: сохраняй знаки (e.g. "<1000 км"). Если единиц нет, добавь "км", если это высота.
-5. `number`: извлекай количество спутников (числом в строке, e.g. "5").
+4. `number`: число спутников.
 
-Контекст (похожие примеры):
+Контекст:
 {examples}
 
-ЗАПРОС ПОЛЬЗОВАТЕЛЯ: "{query}"
+ЗАПРОС: "{query}"
 
-Верни ТОЛЬКО JSON объект с ключами: orbitType, coverage, altitude, mass, status, formFactor, number.
-"""
-        try:
-            response = self.client.chat.completions.create(
-                model=config.llm_model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.0, # Максимальная точность
-                response_format={"type": "json_object"},
-                max_tokens=300
-            )
-            return json.loads(response.choices[0].message.content)
-        except Exception as e:
-            logger.error(f"LLM Error: {e}")
-            return {}
+Верни ТОЛЬКО JSON."""
 
+        max_retries = 5
+        wait_time = 5  # Начальное ожидание
+        
+        for attempt in range(max_retries):
+            try:
+                response = self.client.chat.completions.create(
+                    model=config.llm_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.0,
+                    response_format={"type": "json_object"},
+                    max_tokens=300
+                )
+                return json.loads(response.choices[0].message.content)
+            
+            except openai.RateLimitError as e:
+                error_msg = str(e)
+                # Ищем время ожидания в тексте ошибки "Please try again in 5m47.328s"
+                import re
+                match = re.search(r"try again in (\d+)m(\d+\.?\d*)s", error_msg)
+                if match:
+                    minutes = float(match.group(1))
+                    seconds = float(match.group(2))
+                    sleep_seconds = minutes * 60 + seconds + 2 # +2 сек про запас
+                    logger.warning(f"Лимит токенов! Ждем {sleep_seconds:.1f} сек...")
+                    time.sleep(sleep_seconds)
+                else:
+                    # Если не смогли распарсить время, просто ждем с экспонентой
+                    logger.warning(f"Rate Limit (429). Ждем {wait_time} сек...")
+                    time.sleep(wait_time)
+                    wait_time *= 2 # Увеличиваем время ожидания
+                    
+            except Exception as e:
+                logger.error(f"Ошибка LLM: {e}")
+                return {}
+        
+        return {}
 # ========================= MAIN LOGIC =========================
 
 def load_raw_data():
