@@ -2,7 +2,7 @@
 RAG Pipeline для поиска спутников
 Объединяет: подготовку корпуса, векторизацию, FAISS поиск, перефразирование и генерацию ответов
 """
-
+import os
 import json
 import numpy as np
 import faiss
