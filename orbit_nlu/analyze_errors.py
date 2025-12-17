@@ -109,7 +109,7 @@ def main():
             if line.strip(): full_dataset.append(json.loads(line))
     
     # Отложенная выборка (10%)
-    test_size = int(len(full_dataset) * 0.1)
+    test_size = int(len(full_dataset) * 0.005)
     if test_size == 0: test_size = len(full_dataset) # Если данных мало
     test_set = full_dataset[-test_size:]
     
