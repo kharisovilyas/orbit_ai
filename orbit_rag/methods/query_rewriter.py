@@ -1,73 +1,92 @@
 import requests
 import json
+import openai
 
 # ========================= НАСТРОЙКИ =========================
-GEMINI_API_KEY = "AIzaSyDwP0zc9y8bazLSyzNxs2l9ZeiWk37dir0"  # <-- вставь свой ключ
-# Актуальная модель на декабрь 2025 (бесплатная и быстрая)
-GEMINI_MODEL = "gemini-2.5-flash"  # или "gemini-2.0-flash"
 
-if not GEMINI_API_KEY:
-    raise ValueError("Задай переменную окружения GEMINI_API_KEY с новым ключом!")
 
-GEMINI_URL = (
-    f"https://generativelanguage.googleapis.com/v1/models/"
-    f"{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+# 2. Выберите модель. Попробуйте начать с этой:
+GROQ_MODEL = "llama-3.3-70b-versatile"  # Быстрая и мощная модель[citation:4]
+
+# 3. базовый URL Groq (совместим с OpenAI)
+import openai
+client = openai.OpenAI(
+    base_url="https://api.groq.com/openai/v1",
+    api_key=GROQ_API_KEY,
 )
 # ===========================================================
 
-REWRITE_PROMPT = """
-Перефразируй запрос так, чтобы он максимально точно передавал задачу выбора спутника. 
-Уточни: тип орбиты, массу, форм-фактор, статус, покрытие.
-Не добавляй новые данные — только переформулируй существующие.
-Не придумывай значения, которых нет в исходном запросе.
-Сохрани исходный смысл полностью.
+# REWRITE_PROMPT = """
+# Перефразируй запрос так, чтобы он максимально точно передавал задачу выбора спутника.
+# Уточни: тип орбиты, массу, форм-фактор, статус, покрытие.
+# Не добавляй новые данные — только переформулируй существующие.
+# Не придумывай значения, которых нет в исходном запросе.
+# Сохрани исходный смысл полностью.
+#
+# Исходный запрос:
+# {query}
+#
+# Перефразированный запрос:
+# """
 
-Исходный запрос:
-{query}
-
-Перефразированный запрос:
-"""
+# def rewrite_query(query: str) -> str:
+#     if not query.strip():
+#         return query
+#
+#     full_prompt = REWRITE_PROMPT.format(query=query.strip())
+#
+#     payload = {
+#         "contents": [{"parts": [{"text": full_prompt}]}],
+#         "generationConfig": {
+#             "temperature": 0.3,
+#             "maxOutputTokens": 150
+#         }
+#     }
+#
+#     headers = {"Content-Type": "application/json"}
+#
+#     try:
+#         response = requests.post(GEMINI_URL, headers=headers, json=payload, timeout=30)
+#         response.raise_for_status()
+#         data = response.json()
+#
+#         candidates = data.get("candidates", [])
+#         if not candidates:
+#             return query
+#
+#         text_parts = candidates[0].get("content", {}).get("parts", [])
+#         rewritten = "".join(part.get("text", "") for part in text_parts).strip()
+#
+#         if rewritten.lower().startswith("перефразированный запрос"):
+#             rewritten = rewritten.split(":", 1)[1].strip()
+#
+#         return rewritten or query
+#
+#     except requests.exceptions.HTTPError as e:
+#         print(f"Ошибка Gemini API ({e.response.status_code}): {e.response.text}")
+#         return query
+#     except Exception as e:
+#         print(f"Ошибка при обращении к Gemini API: {e}")
+#         return query
+#
 
 def rewrite_query(query: str) -> str:
-    if not query.strip():
-        return query
-
-    full_prompt = REWRITE_PROMPT.format(query=query.strip())
-
-    payload = {
-        "contents": [{"parts": [{"text": full_prompt}]}],
-        "generationConfig": {
-            "temperature": 0.3,
-            "maxOutputTokens": 150
-        }
-    }
-
-    headers = {"Content-Type": "application/json"}
-
     try:
-        response = requests.post(GEMINI_URL, headers=headers, json=payload, timeout=30)
-        response.raise_for_status()
-        data = response.json()
-
-        candidates = data.get("candidates", [])
-        if not candidates:
-            return query
-
-        text_parts = candidates[0].get("content", {}).get("parts", [])
-        rewritten = "".join(part.get("text", "") for part in text_parts).strip()
-
-        if rewritten.lower().startswith("перефразированный запрос"):
-            rewritten = rewritten.split(":", 1)[1].strip()
-
-        return rewritten or query
-
-    except requests.exceptions.HTTPError as e:
-        print(f"Ошибка Gemini API ({e.response.status_code}): {e.response.text}")
-        return query
+        response = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {"role": "system", "content":
+                    "Ты помощник для перефразирования запросов о спутниках. Перефразируй запрос так, чтобы он максимально точно передавал задачу выбора спутника. Уточни: тип орбиты, массу, форм-фактор, статус, покрытие.Не добавляй новые данные — только переформулируй существующие.Не придумывай значения, которых нет в исходном запросе.Сохрани исходный смысл полностью."},
+                {"role": "user", "content": query}
+            ],
+            temperature=0.3,
+            max_tokens=150
+        )
+        return response.choices[0].message.content.strip()
     except Exception as e:
-        print(f"Ошибка при обращении к Gemini API: {e}")
-        return query
-
+        print(f"Ошибка Groq API: {e}")
+        return query  # Возвращаем оригинал в случае ошибки
+# ===========================================================
 
 # ========================= ТЕСТ =========================
 if __name__ == "__main__":
