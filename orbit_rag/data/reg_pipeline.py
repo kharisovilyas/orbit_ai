@@ -17,7 +17,6 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-
 @dataclass
 class Config:
     prompts_path: str = "prompts.jsonl"
@@ -35,9 +34,7 @@ class Config:
     embedding_dim: int = 768
     batch_size: int = 32
 
-
 config = Config()
-
 
 class CorpusBuilder:
     @staticmethod
@@ -172,30 +169,6 @@ class FastQueryRewriter:
         except Exception:
             return query
 
-
-# class RAGGenerator:
-#     def __init__(self, rewriter: FastQueryRewriter):
-#         self.client = rewriter.client
-#         self.model = rewriter.model
-#
-#     def generate_response(self, original_query: str, rewritten_query: str, retrieved_docs: List[Dict]) -> Dict:
-#         context = "\n".join([f"Doc: {d['document']['text']} Filters: {d['document']['json']}" for d in retrieved_docs])
-#
-#         prompt = f"""
-#         Запрос: {original_query}
-#         Контекст: {context}
-#         Верни JSON с полями: original_query, final_filters (orbitType, mass, coverage, status, formFactor), reasoning.
-#         """
-#         try:
-#             response = self.client.chat.completions.create(
-#                 model=self.model,
-#                 messages=[{"role": "user", "content": prompt}],
-#                 temperature=0.1,
-#                 response_format={"type": "json_object"}
-#             )
-#             return json.loads(response.choices[0].message.content)
-#         except Exception as e:
-#             return {"error": str(e), "original_query": original_query}
 class RAGGenerator:
     def __init__(self, rewriter: FastQueryRewriter):
         self.client = rewriter.client
