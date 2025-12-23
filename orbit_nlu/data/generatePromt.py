@@ -8,216 +8,116 @@ from typing import Dict, Any, List, Optional, Tuple
 
 class DatasetGenerator:
     """
-    Генератор датасета NLU (версия 'Heavy').
-    База знаний увеличена в ~10 раз для максимальной вариативности.
+    Генератор датасета NLU (Balanced Edition).
+    75% данных — чистый, грамотный русский язык.
+    25% данных — реалистичные ошибки, сленг, небрежность.
     """
 
     def __init__(self, min_filters: int = 2):
         self.morph = pymorphy2.MorphAnalyzer()
         self.MIN_FILTERS = min_filters
         self.ALL_FILTER_KEYS = ["orbitType", "coverage", "altitude", "mass", "status", "formFactor", "number"]
+        
+        # Настройка баланса
+        self.CLEAN_RATIO = 0.75  # 75% чистых данных
 
-        # Словарь для конвертации чисел в текст
         self.NUM_TO_TEXT = {
             1: "один", 2: "два", 3: "три", 4: "четыре", 5: "пять",
             6: "шесть", 7: "семь", 8: "восемь", 9: "девять", 10: "десять",
-            11: "одиннадцать", 12: "двенадцать", 15: "пятнадцать", 20: "двадцать"
+            12: "двенадцать"
         }
 
-        # --- ГИГАНТСКАЯ БАЗА ЗНАНИЙ ---
+        # --- ДАННЫЕ ---
         self.DATA = {
             "coverage": [
-                # === РОССИЯ И СНГ ===
-                ("Россия", "Россия"), ("РФ", "Россия"), ("Российская Федерация", "Россия"), ("RUSSIA", "Россия"),
-                ("территория России", "Россия"), ("наша страна", "Россия"), ("Отечество", "Россия"),
-                ("Москва", "Россия"), ("Питер", "Россия"), ("СПб", "Россия"), ("Московская область", "Россия"),
-                ("Урал", "Россия"), ("Сибирь", "Россия"), ("Дальний Восток", "Россия"), ("Камчатка", "Россия"),
-                ("Сахалин", "Россия"), ("Курилы", "Россия"), ("Байкал", "Россия"), ("Поволжье", "Россия"),
-                ("Кавказ", "Россия"), ("Сочи", "Россия"), ("Крым", "Россия"), ("Калининград", "Россия"),
-                ("Новосибирск", "Россия"), ("Владивосток", "Россия"), ("Екатеринбург", "Россия"),
-                ("Казахстан", "Казахстан"), ("Байконур", "Казахстан"), ("Астана", "Казахстан"),
-                ("Беларусь", "Беларусь"), ("Минск", "Беларусь"), ("Украина", "Европа"), ("Киев", "Европа"),
-
-                # === СЕВЕРНАЯ АМЕРИКА ===
-                ("США", "США"), ("USA", "США"), ("Соединенные Штаты", "США"), ("Штаты", "США"), ("Америка", "США"),
-                ("Вашингтон", "США"), ("Нью-Йорк", "США"), ("Калифорния", "США"), ("Техас", "США"), ("Флорида", "США"),
-                ("Мыс Канаверал", "США"), ("Аляска", "США"), ("Гавайи", "США"), ("Пентагон", "США"),
-                ("Канада", "Канада"), ("Торонто", "Канада"), ("Оттава", "Канада"), ("Ванкувер", "Канада"),
-                ("Мексика", "Северная Америка"),
-
-                # === ЮЖНАЯ АМЕРИКА ===
-                ("Южная Америка", "Южная Америка"), ("Латинская Америка", "Южная Америка"), ("Латам", "Южная Америка"),
-                ("Бразилия", "Южная Америка"), ("Амазонка", "Южная Америка"), ("Рио", "Южная Америка"),
-                ("Аргентина", "Южная Америка"), ("Чили", "Южная Америка"), ("Анды", "Южная Америка"),
-                ("Куру", "Южная Америка"), ("космодром Куру", "Южная Америка"),
-
-                # === АЗИЯ ===
-                ("Китай", "Китай"), ("КНР", "Китай"), ("China", "Китай"), ("Поднебесная", "Китай"),
-                ("Пекин", "Китай"), ("Шанхай", "Китай"), ("Тибет", "Китай"), ("Гонконг", "Китай"),
-                ("Индия", "Индия"), ("Дели", "Индия"), ("Мумбаи", "Индия"), ("Бангалор", "Индия"),
-                ("Япония", "Япония"), ("Токио", "Япония"), ("Острова", "Япония"),
-                ("Корея", "Южная Корея"), ("Сеул", "Южная Корея"), ("КНДР", "Северная Корея"),
-                ("Азия", "Азия"), ("Юго-Восточная Азия", "Азия"), ("Тайвань", "Азия"),
-                ("Ближний Восток", "Ближний Восток"), ("Израиль", "Ближний Восток"), ("ОАЭ", "Ближний Восток"),
-                ("Дубай", "Ближний Восток"), ("Иран", "Ближний Восток"), ("Турция", "Ближний Восток"),
-
-                # === ЕВРОПА ===
-                ("Европа", "Европа"), ("ЕС", "Европа"), ("Евросоюз", "Европа"), ("EU", "Европа"), ("Старый Свет", "Европа"),
-                ("Западная Европа", "Европа"), ("Восточная Европа", "Европа"), ("Скандинавия", "Европа"),
-                ("Германия", "Европа"), ("Берлин", "Европа"), ("Франция", "Европа"), ("Париж", "Европа"),
-                ("Британия", "Европа"), ("Лондон", "Европа"), ("UK", "Европа"), ("Италия", "Европа"), ("Рим", "Европа"),
-                ("Испания", "Европа"), ("Польша", "Европа"),
-
-                # === АФРИКА И ОКЕАНИЯ ===
-                ("Африка", "Африка"), ("африканский континент", "Африка"), ("Сахара", "Африка"),
-                ("Египет", "Африка"), ("Каир", "Африка"), ("ЮАР", "Африка"), ("Нигерия", "Африка"),
-                ("Австралия", "Австралия"), ("Сидней", "Австралия"), ("Мельбурн", "Австралия"),
-                ("Океания", "Австралия"), ("Новая Зеландия", "Австралия"),
-
-                # === ВОДОЕМЫ И ЗОНЫ ===
-                ("Арктика", "Арктика"), ("Северный полюс", "Арктика"), ("Севморпуть", "Арктика"), ("Заполярье", "Арктика"),
-                ("Антарктида", "Антарктида"), ("Южный полюс", "Антарктида"), ("Антарктика", "Антарктида"),
-                ("Тихий океан", "Тихий океан"), ("Пацифика", "Тихий океан"),
-                ("Атлантика", "Атлантический океан"), ("Атлантический океан", "Атлантический океан"),
-                ("Индийский океан", "Индийский океан"),
-                ("Черное море", "Россия"), ("Балтика", "Европа"), ("Средиземноморье", "Европа"),
-                ("Экватор", "Экватор"), ("экваториальная зона", "Экватор"), ("тропики", "Экватор"),
-                ("Весь мир", "Global"), ("Глобально", "Global"), ("Планета", "Global"), ("Земля", "Global"),
+                ("Россия", "Россия"), ("РФ", "Россия"), ("Российская Федерация", "Россия"), ("территория РФ", "Россия"),
+                ("Москва", "Россия"), ("Сибирь", "Россия"), ("Дальний Восток", "Россия"), ("Крым", "Россия"),
+                ("США", "США"), ("Америка", "США"), ("Северная Америка", "Северная Америка"),
+                ("Китай", "Китай"), ("КНР", "Китай"), ("Поднебесная", "Китай"),
+                ("Европа", "Европа"), ("ЕС", "Европа"), ("Евросоюз", "Европа"), ("страны ЕС", "Европа"),
+                ("Африка", "Африка"), ("африканский континент", "Африка"),
+                ("Южная Америка", "Южная Америка"), ("Бразилия", "Южная Америка"),
+                ("Азия", "Азия"), ("Индия", "Индия"), ("Ближний Восток", "Ближний Восток"),
+                ("Арктика", "Арктика"), ("Северный полюс", "Арктика"), ("Севморпуть", "Арктика"),
+                ("Антарктида", "Антарктида"), ("Южный полюс", "Антарктида"),
+                ("Тихий океан", "Тихий океан"), ("Атлантика", "Атлантический океан"),
+                ("Экватор", "Экватор"), ("экваториальная зона", "Экватор"), ("Global", "Global"),
             ],
             
             "orbitType": [
-                # LEO
                 ("LEO", "LEO"), ("НОО", "LEO"), ("низкая околоземная орбита", "LEO"), ("низкая орбита", "LEO"),
-                ("низкая высота", "LEO"), ("Low Earth Orbit", "LEO"), ("на низах", "LEO"), ("низколетящие", "LEO"),
-                ("200-2000 км", "LEO"), ("околоземная", "LEO"),
-                # MEO
                 ("MEO", "MEO"), ("СОО", "MEO"), ("средняя околоземная орбита", "MEO"), ("средняя орбита", "MEO"),
-                ("Medium Earth Orbit", "MEO"), ("навигационная орбита", "MEO"), ("GPS-орбита", "MEO"), ("ГЛОНАСС-орбита", "MEO"),
-                ("полусуточная", "MEO"),
-                # GEO
                 ("GEO", "GEO"), ("ГСО", "GEO"), ("геостационарная орбита", "GEO"), ("геостационар", "GEO"),
-                ("Geostationary", "GEO"), ("геостационарное кольцо", "GEO"), ("ГСО-точка", "GEO"), ("стационар", "GEO"),
-                ("36000", "GEO"), ("висящие на месте", "GEO"), ("синхронная с Землей", "GEO"),
-                # SSO
-                ("SSO", "SSO"), ("ССО", "SSO"), ("солнечно-синхронная орбита", "SSO"), ("солнечно-синхронная", "SSO"),
-                ("Sun-Synchronous", "SSO"), ("солнечная синхронизация", "SSO"), ("по солнцу", "SSO"),
-                # HEO / Molniya
-                ("HEO", "HEO"), ("ВЭО", "HEO"), ("высокая эллиптическая орбита", "HEO"), ("высокая орбита", "HEO"),
-                ("эллиптическая", "HEO"), ("вытянутая орбита", "HEO"), ("High Earth Orbit", "HEO"),
-                ("Molniya", "Molniya"), ("орбита Молния", "Molniya"), ("молния", "Molniya"), ("высокоэллиптическая", "Molniya"),
-                ("Tundra", "HEO"), ("Тундра", "HEO"),
-                # Other / Slang
-                ("Polar", "Polar"), ("полярная орбита", "Polar"), ("через полюса", "Polar"), ("полярник", "Polar"),
-                ("GTO", "GTO"), ("ГПО", "GTO"), ("геопереходная орбита", "GTO"), ("переходная", "GTO"),
-                ("Graveyard", "Graveyard"), ("орбита захоронения", "Graveyard"), ("кладбище", "Graveyard"), ("мусорная орбита", "Graveyard"),
-                ("LEO/SSO", "SSO"), ("экваториальная", "Equatorial"),
+                ("SSO", "SSO"), ("ССО", "SSO"), ("солнечно-синхронная орбита", "SSO"),
+                ("HEO", "HEO"), ("ВЭО", "HEO"), ("высокая эллиптическая орбита", "HEO"),
+                ("Molniya", "Molniya"), ("орбита Молния", "Molniya"),
+                ("Polar", "Polar"), ("полярная орбита", "Polar"),
+                ("GTO", "GTO"), ("ГПО", "GTO"),
             ],
             
             "status": [
-                # Active
-                ("активный", "активен"), ("рабочий", "активен"), ("живой", "активен"), ("функционирующий", "активен"), 
-                ("в строю", "активен"), ("работающий", "активен"), ("действующий", "активен"), ("operational", "активен"),
-                ("on-duty", "активен"), ("в эксплуатации", "активен"), ("исправный", "активен"), ("на связи", "активен"),
-                ("передающий", "активен"), ("включенный", "активен"), ("OK", "активен"), ("nominal", "активен"),
-                
-                # Inactive / Dead
-                ("неактивный", "неактивен"), ("мертвый", "неактивен"), ("списанный", "неактивен"), 
-                ("вышедший из строя", "неактивен"), ("сломанный", "неактивен"), ("мусор", "неактивен"), 
-                ("космический мусор", "неактивен"), ("обломок", "неактивен"), ("retired", "неактивен"),
-                ("дохлый", "неактивен"), ("не отвечающий", "неактивен"), ("broken", "неактивен"), ("dead", "неактивен"),
-                ("потерянный", "неактивен"), ("отключенный", "неактивен"), ("умолкнувший", "неактивен"),
-                ("деорбитированный", "неактивен"), ("сгоревший", "неактивен"), ("аварийный", "неактивен"),
-                
-                # Special (mapped to broad categories usually, but here as text variation)
-                ("тестовый", "активен"), ("резервный", "неактивен"), ("в консервации", "неактивен"),
+                ("активный", "активен"), ("рабочий", "активен"), ("функционирующий", "активен"), ("в строю", "активен"), ("работающий", "активен"),
+                ("неактивный", "неактивен"), ("списанный", "неактивен"), ("вышедший из строя", "неактивен"), ("неработающий", "неактивен"), ("мусор", "неактивен"),
             ],
             
             "formFactor": [
-                # CubeSats
-                ("1U", "1U"), ("один юнит", "1U"), ("1 unit", "1U"), ("одноюнитовый", "1U"), ("1-U", "1U"),
-                ("2U", "2U"), ("два юнита", "2U"), ("двухюнитовый", "2U"),
-                ("3U", "3U"), ("три юнита", "3U"), ("трехюнитовый", "3U"), ("3-U", "3U"),
-                ("6U", "6U"), ("шесть юнитов", "6U"), ("6-unit", "6U"), ("шестиюнитовый", "6U"),
-                ("12U", "12U"), ("12 юнитов", "12U"), ("12-unit", "12U"),
-                ("16U", "16U"), ("27U", "27U"),
-                ("CubeSat", "CubeSat"), ("кубсат", "CubeSat"), ("наноспутник", "CubeSat"), ("cube", "CubeSat"),
-                ("кубик", "CubeSat"), ("NanoSat", "CubeSat"), ("PicoSat", "CubeSat"),
-                
-                # SmallSats
-                ("SmallSat", "SmallSat"), ("малый спутник", "SmallSat"), ("малый КА", "SmallSat"), ("микроспутник", "SmallSat"),
-                ("MicroSat", "SmallSat"), ("миниспутник", "SmallSat"), ("платформа", "SmallSat"),
-                
-                # Big
-                ("Full-scale", "Large"), ("большой спутник", "Large"), ("тяжелый аппарат", "Large"), ("тяжеловес", "Large"),
-                ("стандартный", "Large"), ("геостационарный борт", "Large"), ("тонник", "Large"),
-                ("телеком-спутник", "Large"), ("обсерватория", "Large"), ("станция", "Large"),
+                ("1U", "1U"), ("1 unit", "1U"), ("2U", "2U"), ("3U", "3U"), ("6U", "6U"), ("12U", "12U"),
+                ("CubeSat", "CubeSat"), ("кубсат", "CubeSat"), ("наноспутник", "CubeSat"),
+                ("SmallSat", "SmallSat"), ("малый спутник", "SmallSat"), ("микроспутник", "SmallSat"),
+                ("Large", "Large"), ("большой спутник", "Large"), ("тяжелый аппарат", "Large"),
             ],
             
             "synonyms": [
-                # Formal
-                "спутник", "аппарат", "космический аппарат", "КА", "объект", "искусственный спутник",
-                "сателлит", "ИСЗ", "автоматическая станция", "платформа", "система", "устройство",
-                
-                # Slang / Jargon
-                "борт", "птичка", "изделие", "железяка", "штука", "единица", "точка", "цель",
-                "банка", "коробка", "посудина", "разведчик", "ретранслятор", "зонд",
-                "bird", "sat", "unit", "target", "космолет"
-            ],
-            
-            "verbs": [
-                # Direct
-                "Найди", "Подбери", "Покажи", "Выведи", "Ищи", "Найти", "Отобрази", "Дай", "Выдай",
-                
-                # Polite / Soft
-                "Нужен", "Требуется", "Есть ли", "Хочу найти", "Нужен список", "Подскажи", 
-                "Интересует", "Интересуют", "Хотелось бы узнать", "Помоги найти", "Можешь показать",
-                
-                # Imperative / Slang
-                "Запроси", "Сформируй список", "Сгенерируй", "Перечисли", "Назови",
-                "Чекни", "Глянь", "Пробей", "Посмотри", "Нарой", "Отфильтруй", "Выбери",
-                "Листани", "Скинь", "Поищи", "Отыщи", "Вычисли", "Детектируй"
+                "спутник", "аппарат", "космический аппарат", "КА", "объект", "искусственный спутник", "сателлит", "система"
             ],
             
             "units": {
-                "mass": ["кг", "килограмм", "кило", "kg", "килограммов", "кг."],
-                "dist": ["км", "километров", "тыс. км", "km", "километра", "тысяч километров"]
-            },
-            
-            "filler_words": [
-                "пожалуйста", "плз", "срочно", "кстати,", "эээ", "может быть", "примерно", 
-                "типа", "вообще", "если есть,", "короче,", "слушай,", "подскажи,",
-                "братан,", "в общем,", "как бы,", "ну,", "эмм,", "срочняк,", "для диплома,",
-                "по-братски,", "чисто,", "реально,", "в натуре,", "допустим,"
-            ]
+                "mass": ["кг", "килограмм", "кило"],
+                "dist": ["км", "километров", "тыс. км"]
+            }
         }
 
-        self.TEMPLATES = [
-            # Стандартные
+        # --- РАЗДЕЛЕНИЕ ЛЕКСИКИ ---
+        
+        # 1. ГЛАГОЛЫ
+        self.VERBS_FORMAL = [
+            "Найди", "Подбери", "Покажи", "Выведи", "Ищи", "Найти", "Отобрази", 
+            "Предоставь", "Требуется", "Запроси", "Сформируй список", "Нужен", "Дай список"
+        ]
+        self.VERBS_SLANG = [
+            "Чекни", "Глянь", "Пробей", "Посмотри", "Нарой", "Скинь", "Есть че", "Метни", "Поищи"
+        ]
+
+        # 2. ВВОДНЫЕ СЛОВА (FILLERS)
+        self.FILLERS_FORMAL = [
+            "пожалуйста,", "будь добр,", "если есть,", "подскажи,", "интересует,"
+        ]
+        self.FILLERS_SLANG = [
+            "короче,", "слыш,", "типа", "эээ", "в натуре,", "чисто", "срочняк,", "брат,"
+        ]
+
+        # 3. ШАБЛОНЫ
+        self.TEMPLATES_CLEAN = [
             ("{verb} {number} {synonym:accs}, которые покрывают {coverage:accs}.", ["number", "coverage"]),
             ("Нужен {synonym:nomn} для мониторинга {coverage:gent}.", ["coverage"]),
             ("Покажи {synonym:accs}, видящий {coverage:accs}, на {orbitType:loct}.", ["coverage", "orbitType"]),
             ("Ищи {synonym:accs} с массой {mass} и статусом {status:ablt}.", ["mass", "status"]),
-            
-            # Вопросы
             ("Есть ли {synonym:nomn} весом {mass} на {orbitType:loct}?", ["mass", "orbitType"]),
             ("Какие {synonym:nomn} летают над {coverage:ablt}?", ["coverage"]),
             ("Сколько {status:gent} {synonym:gent} находится на {orbitType:loct}?", ["status", "orbitType", "number"]),
-            ("Можешь найти {synonym:accs} ({formFactor})?", ["formFactor"]),
-            
-            # Технические / Телеграфные
-            ("{orbitType:nomn}, {coverage:nomn}, {status:nomn}.", ["orbitType", "coverage", "status"]),
+            ("Запрос: {orbitType:nomn}, {coverage:nomn}, {status:nomn}.", ["orbitType", "coverage", "status"]),
             ("Фильтр: масса {mass}, регион {coverage:nomn}.", ["mass", "coverage"]),
-            ("Запрос на {synonym:accs}: {formFactor}, {altitude}.", ["formFactor", "altitude"]),
-            ("Параметры: {orbitType:nomn}, {mass}.", ["orbitType", "mass"]),
-            
-            # Разговорные / Несвязные
+            ("Для высоты {altitude} подбери {number} {synonym:accs}.", ["altitude", "number"]),
+        ]
+
+        self.TEMPLATES_NOISY = [
             ("{verb} {synonym:accs}... ну чтобы {coverage:accs} видел.", ["coverage"]),
             ("надо {synonym:accs} {formFactor} или типа того для {coverage:gent}", ["formFactor", "coverage"]),
             ("{status:nomn} {synonym:nomn} на {orbitType:loct} есть?", ["status", "orbitType"]),
             ("для {coverage:gent} {verb} что-нибудь на {altitude}", ["coverage", "altitude"]),
-            ("слыш, {verb} {synonym:accs} {status:accs}", ["status"]),
             ("интересно, а есть {synonym:nomn} {mass}?", ["mass"]),
             ("{coverage:nomn}... что там летает?", ["coverage"]),
+            ("{verb} {number} {synonym:accs} {status:nomn}", ["number", "status"]),
         ]
         
         self.LOGIC_RULES = {
@@ -226,14 +126,14 @@ class DatasetGenerator:
         }
 
     def _add_typo(self, text: str) -> str:
-        """Добавляет случайную опечатку в текст с вероятностью 15%."""
-        if random.random() > 0.15: return text
+        """Добавляет опечатку только для NOISY данных."""
+        if random.random() > 0.3: return text # Даже в noisy не всегда опечатки
         
         chars = list(text)
         if len(chars) < 4: return text
         
         idx = random.randint(1, len(chars) - 2)
-        typo_type = random.choice(['swap', 'drop', 'double', 'wrong_key'])
+        typo_type = random.choice(['swap', 'drop', 'double'])
         
         if typo_type == 'swap':
             chars[idx], chars[idx+1] = chars[idx+1], chars[idx]
@@ -241,23 +141,8 @@ class DatasetGenerator:
             chars.pop(idx)
         elif typo_type == 'double':
             chars.insert(idx, chars[idx])
-        elif typo_type == 'wrong_key':
-            # Симуляция промаха по клавише (очень грубая)
-            # Заменим гласную на гласную или согласную на соседнюю (условно)
-            if chars[idx] in 'аеёиоуыэюя':
-                chars[idx] = random.choice('аеёиоуыэюя'.replace(chars[idx], ''))
             
         return "".join(chars)
-
-    def _add_filler(self, text: str) -> str:
-        """Добавляет мусорные слова в начало или конец."""
-        if random.random() > 0.6: # Повысили вероятность мусора
-            filler = random.choice(self.DATA["filler_words"])
-            if random.random() > 0.5:
-                text = f"{filler} {text}"
-            else:
-                text = f"{text} {filler}"
-        return text
 
     def _inflect_phrase(self, text: str, case: str, number: int = 1) -> str:
         words = text.split()
@@ -275,16 +160,15 @@ class DatasetGenerator:
         return " ".join(res)
 
     def _is_immutable(self, word: str) -> bool:
-        # Регулярка теперь разрешает точки, дефисы и цифры внутри
         if re.match(r'^[A-Za-z0-9\.\-]+$', word): return True
-        # Если слово капсом (аббревиатура) и длиннее 1 буквы
         if word.isupper() and len(word) > 1: return True
         return False
 
-    def _number_to_text(self, num: int, case: str) -> str:
-        """Конвертирует число в текст (пять) или оставляет цифрой (5)."""
-        # 70% цифра, 30% текст (только для малых чисел)
-        if random.random() > 0.7 and num in self.NUM_TO_TEXT:
+    def _number_to_text(self, num: int, case: str, is_clean: bool) -> str:
+        # В чистых данных чаще пишем словами маленькие числа
+        threshold = 0.4 if is_clean else 0.8
+        
+        if random.random() > threshold and num in self.NUM_TO_TEXT:
             word = self.NUM_TO_TEXT[num]
             p = self.morph.parse(word)[0]
             if case not in ['nomn', 'accs']:
@@ -307,7 +191,7 @@ class DatasetGenerator:
                 inflected = p.inflect({case})
             return inflected.word if inflected else word
 
-    def _generate_mass_val(self, filters) -> Tuple[str, str]:
+    def _generate_mass_val(self, filters, is_clean: bool) -> Tuple[str, str]:
         min_m, max_m = 5, 5000
         if "formFactor" in filters:
             ff_raw = filters["formFactor"]
@@ -320,11 +204,12 @@ class DatasetGenerator:
         
         if random.random() > 0.7:
             val2 = val + random.randint(5, 50)
-            return f"{val}-{val2}", f"от {val} до {val2} {unit}"
+            text_phrase = f"от {val} до {val2} {unit}" if is_clean else f"{val}-{val2}"
+            return f"{val}-{val2}", text_phrase
         else:
             return str(val), f"{val} {unit}"
 
-    def _generate_alt_val(self, filters) -> Tuple[str, str]:
+    def _generate_alt_val(self, filters, is_clean: bool) -> Tuple[str, str]:
         min_a, max_a = 400, 36000
         orbit = filters.get("orbitType", "")
         if orbit in self.LOGIC_RULES["orbit_alt"]:
@@ -334,19 +219,26 @@ class DatasetGenerator:
         
         if random.random() > 0.7:
             val2 = val + random.randint(100, 2000)
-            return f"{val}-{val2} км", f"{val}-{val2} {unit}"
+            text_phrase = f"от {val} до {val2} {unit}" if is_clean else f"{val}-{val2}"
+            return f"{val}-{val2} км", text_phrase
         else:
-            # Варианты: просто число, "~число", "высота число"
-            r = random.random()
-            if r < 0.3:
-                return f"~{val} км", f"~{val} {unit}"
-            elif r < 0.6:
-                return f"~{val} км", f"высота {val} {unit}"
-            else:
-                return f"~{val} км", f"{val} {unit}"
+            return f"~{val} км", f"{val} {unit}"
 
     def generate_one(self) -> Optional[Dict[str, Any]]:
-        template, req_fields = random.choice(self.TEMPLATES)
+        # ОПРЕДЕЛЕНИЕ РЕЖИМА: ЧИСТЫЙ (75%) или ГРЯЗНЫЙ (25%)
+        is_clean = random.random() < self.CLEAN_RATIO
+        
+        # Выбор шаблона и словарей в зависимости от режима
+        if is_clean:
+            template, req_fields = random.choice(self.TEMPLATES_CLEAN)
+            verbs_pool = self.VERBS_FORMAL
+            fillers_pool = self.FILLERS_FORMAL
+        else:
+            # В грязном режиме мешаем все подряд
+            template, req_fields = random.choice(self.TEMPLATES_CLEAN + self.TEMPLATES_NOISY)
+            verbs_pool = self.VERBS_FORMAL + self.VERBS_SLANG
+            fillers_pool = self.FILLERS_FORMAL + self.FILLERS_SLANG
+
         filters = {}
         context = {}
         
@@ -358,7 +250,7 @@ class DatasetGenerator:
             num = 1
             
         context["number"] = str(num)
-        context["verb"] = random.choice(self.DATA["verbs"])
+        context["verb"] = random.choice(verbs_pool)
         synonym_base = random.choice(self.DATA["synonyms"])
         
         # 2. Заполнение полей
@@ -372,11 +264,11 @@ class DatasetGenerator:
             if field == "number": continue
             
             if field == "mass":
-                f_val, t_val = self._generate_mass_val(filters)
+                f_val, t_val = self._generate_mass_val(filters, is_clean)
                 filters["mass"] = f_val
                 context["mass"] = t_val
             elif field == "altitude":
-                f_val, t_val = self._generate_alt_val(filters)
+                f_val, t_val = self._generate_alt_val(filters, is_clean)
                 filters["altitude"] = f_val
                 context["altitude"] = t_val
             elif field in self.DATA:
@@ -392,7 +284,7 @@ class DatasetGenerator:
             case = parts[1] if len(parts) > 1 else "nomn"
             
             if key == "number":
-                return self._number_to_text(num, case)
+                return self._number_to_text(num, case, is_clean)
             
             if key == "synonym":
                 word_agreed = self._agree_with_number(synonym_base, num, 'nomn')
@@ -403,6 +295,7 @@ class DatasetGenerator:
                 return self._inflect_phrase(val_text, case, num if key == 'status' else 1)
             return ""
 
+        # Fallback
         for req in req_fields:
             if req not in context and req != "number":
                 if req in self.DATA:
@@ -412,20 +305,43 @@ class DatasetGenerator:
 
         prompt = re.sub(r'{([\w:]+)}', replace_match, template)
         
-        # 4. Пост-обработка: Шум, Опечатки, Форматирование
-        prompt = self._add_filler(prompt)
-        prompt = self._add_typo(prompt)
+        # 4. ПОСТ-ОБРАБОТКА ПО РЕЖИМАМ
         
-        prompt = re.sub(r'\s+', ' ', prompt).strip()
-        
-        if random.random() > 0.5:
-            prompt = prompt.lower()
-        else:
-            prompt = prompt[0].upper() + prompt[1:]
-        
-        if random.random() > 0.3:
+        if is_clean:
+            # ЧИСТЫЙ РЕЖИМ
+            # Только вежливые вводные слова (редко)
+            if random.random() > 0.85:
+                filler = random.choice(self.FILLERS_FORMAL)
+                prompt = f"{filler} {prompt}" if random.random() > 0.5 else f"{prompt} {filler}"
+            
+            prompt = re.sub(r'\s+', ' ', prompt).strip()
+            prompt = prompt[0].upper() + prompt[1:] # Всегда с большой буквы
+            
+            # Всегда правильная пунктуация
             if not prompt.endswith(('.', '?', '!')):
                 prompt += "?" if any(x in prompt.lower() for x in ["какие", "сколько", "есть ли"]) else "."
+                
+        else:
+            # ГРЯЗНЫЙ РЕЖИМ
+            # Добавляем любой мусор
+            if random.random() > 0.6:
+                filler = random.choice(fillers_pool)
+                prompt = f"{filler} {prompt}" if random.random() > 0.5 else f"{prompt} {filler}"
+            
+            # Опечатки
+            prompt = self._add_typo(prompt)
+            
+            prompt = re.sub(r'\s+', ' ', prompt).strip()
+            
+            # Случайный регистр
+            if random.random() > 0.4:
+                prompt = prompt.lower()
+            else:
+                prompt = prompt[0].upper() + prompt[1:]
+                
+            # Может не быть знака в конце
+            if random.random() > 0.5 and not prompt.endswith(('.', '?', '!')):
+                pass # Оставляем без точки
 
         final_filters = {k: filters.get(k, "") for k in self.ALL_FILTER_KEYS}
         return {"prompt": prompt, "filters": final_filters}
@@ -440,7 +356,7 @@ def main():
     data = []
     unique_prompts = set()
     
-    print(f"🚀 Генерация {count} уникальных примеров (База знаний X10)...")
+    print(f"⚖️  Генерация {count} примеров (75% Clean / 25% Noisy)...")
     
     pbar = tqdm(total=count, unit="ex")
     attempts = 0
