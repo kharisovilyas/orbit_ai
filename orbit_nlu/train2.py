@@ -13,6 +13,7 @@ import json
 import yaml
 import argparse
 import logging
+import random  # <--- ДОБАВЛЕНО
 import torch
 import numpy as np
 from typing import Dict, List, Tuple
@@ -94,7 +95,13 @@ def calculate_metrics_custom(model, tokenizer, dataset, device):
             outputs = model.generate(**inputs, max_new_tokens=256, do_sample=False)
         
         generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        response = generated_text.replace(prompt, "").strip()
+        # Отрезаем промпт из ответа, если модель его повторила (хотя skip_special_tokens часто помогает)
+        # Llama часто повторяет промпт, поэтому ищем маркер ответа или вырезаем начало
+        if "**Ответ:**" in generated_text:
+            response = generated_text.split("**Ответ:**")[-1].strip()
+        else:
+            # Fallback: просто пытаемся найти JSON в тексте
+            response = generated_text
         
         # 1. Validity
         try:
@@ -119,8 +126,8 @@ def calculate_metrics_custom(model, tokenizer, dataset, device):
 
     total = len(dataset)
     metrics = {
-        "json_validity": valid_count / total,
-        "exact_match": exact_match / total,
+        "json_validity": valid_count / total if total > 0 else 0,
+        "exact_match": exact_match / total if total > 0 else 0,
         "slot_f1": f1_score(y_true_flat, y_pred_flat, average='macro', zero_division=0)
     }
     return metrics
@@ -132,8 +139,6 @@ def main():
     model_id = args.model_name if args.model_name else cfg.get("model_name", "meta-llama/Llama-3.1-8B-Instruct")
     system_prompt = cfg.get("system_prompt", "Ты помощник.")
     
-    logger.info(f"Запуск эксперимента: R={args.lora_r}, Q={args.quantization}, LR={args.learning_rate}, WD={args.weight_decay}")
-
     # 1. Токенизатор
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.pad_token = tokenizer.eos_token
@@ -150,10 +155,7 @@ def main():
             bnb_4bit_use_double_quant=True,
             bnb_4bit_compute_dtype=torch.float16
         )
-        logger.info("Используется QLoRA (NF4)")
-    else:
-        logger.info("Используется Standard LoRA (FP16)")
-
+    
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         quantization_config=bnb_config,
@@ -161,39 +163,30 @@ def main():
         device_map="auto"
     )
 
-    # Подготовка к k-bit обучению если нужно
     if args.quantization == "nf4":
         model = prepare_model_for_kbit_training(model)
 
     # 3. LoRA Config
     peft_config = LoraConfig(
         r=args.lora_r,
-        lora_alpha=args.lora_r * 2, # Обычно alpha = 2*r
+        lora_alpha=args.lora_r * 2,
         lora_dropout=0.05,
         bias="none",
         task_type="CAUSAL_LM",
-        target_modules=["q_proj", "v_proj", "k_proj", "o_proj"] # Расширенный таргет для Llama 3
+        target_modules=["q_proj", "v_proj", "k_proj", "o_proj"]
     )
     
     model = get_peft_model(model, peft_config)
-    model.print_trainable_parameters()
 
     # 4. Датасет
     def format_ds(sample):
-        # Формируем полный текст для обучения
         prompt_text = f"{system_prompt}\n\n**Запрос:** {sample['prompt']}\n\n**Ответ:**"
         json_text = json.dumps(sample['filters'], ensure_ascii=False)
         full_text = prompt_text + " " + json_text
         
-        # Токенизируем
         tokenized = tokenizer(full_text, truncation=True, max_length=512, padding="max_length")
         tokenized["labels"] = tokenized["input_ids"].copy()
         
-        # Маскируем промпт в labels, чтобы учить только ответ (опционально, но полезно)
-        # Для простоты пока учим всё, как в baseline, или можно улучшить.
-        # Оставим обучение на полном тексте.
-        
-        # Сохраняем сырые данные для валидации
         tokenized["text_prompt"] = prompt_text
         tokenized["labels_json"] = sample['filters']
         return tokenized
@@ -205,7 +198,7 @@ def main():
                 raw_data.append(json.loads(line))
     
     # Сплит
-    random.seed(42)
+    random.seed(42) # Теперь это сработает
     random.shuffle(raw_data)
     split_idx = int(len(raw_data) * 0.9)
     train_data = raw_data[:split_idx]
@@ -214,23 +207,22 @@ def main():
     train_ds = Dataset.from_list(train_data).map(format_ds)
     eval_ds = Dataset.from_list(val_data).map(format_ds)
     
-    # Удаляем служебные колонки для trainer, но оставляем для валидации
     train_ds_formatted = train_ds.remove_columns(["prompt", "filters", "text_prompt", "labels_json"])
 
     # 5. Аргументы обучения
     training_args = TrainingArguments(
         output_dir=args.output_dir,
-        per_device_train_batch_size=2, # Маленький батч для GPU памяти
+        per_device_train_batch_size=2,
         gradient_accumulation_steps=4,
-        num_train_epochs=1, # Для скорости эксперимента ставим 1-2 эпохи, можно увеличить
+        num_train_epochs=1,
         learning_rate=args.learning_rate,
         weight_decay=args.weight_decay,
         warmup_ratio=args.warmup_ratio,
         logging_steps=10,
-        save_strategy="no", # Экономим место
+        save_strategy="no",
         fp16=(args.quantization == "fp16"),
         bf16=False,
-        optim="paged_adamw_8bit", # Оптимизатор для экономии памяти
+        optim="paged_adamw_8bit",
         report_to="none"
     )
 
@@ -245,7 +237,7 @@ def main():
     # 6. Обучение
     trainer.train()
 
-    # 7. Валидация и сохранение результатов
+    # 7. Валидация
     metrics = calculate_metrics_custom(model, tokenizer, eval_ds, model.device)
     
     results = {
@@ -259,7 +251,6 @@ def main():
         "slot_f1": metrics["slot_f1"]
     }
     
-    # Вывод JSON в stdout для перехвата скриптом-оркестратором
     print(f"__RESULT_JSON__{json.dumps(results)}__RESULT_JSON__")
 
 if __name__ == "__main__":
