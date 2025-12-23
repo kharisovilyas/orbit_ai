@@ -373,12 +373,12 @@ def main():
     
     pbar.close()
     
-    output_file = "prompts_generated.txt"
+    output_file = "prompts2.txt"
     with open(output_file, "w", encoding="utf-8") as f:
         for item in data:
             f.write(json.dumps(item, ensure_ascii=False) + "\n")
             
-    print(f"\n✅ Готово! Сохранено в {output_file}")
+    print(f"\nГотово! Сохранено в {output_file}")
 
 if __name__ == "__main__":
     main()
