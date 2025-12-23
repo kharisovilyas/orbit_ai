@@ -4,7 +4,7 @@ import seaborn as sns
 
 def main():
     # Загружаем твой CSV
-    df = pd.read_csv("orbit_nlu/ft_hparams_results2.csv")
+    df = pd.read_csv("ft_hparams_results2.csv")
     
     # Настройка стиля
     sns.set_theme(style="whitegrid")
@@ -21,7 +21,7 @@ def main():
     plt.xlabel('LoRA Rank')
     plt.ylabel('Score')
     plt.legend()
-    plt.savefig('orbit_nlu/plot_rank_impact.png')
+    plt.savefig('plot_rank_impact.png')
     print("График Rank сохранен.")
 
     # 2. Итоговое сравнение всех конфигов (Bar Plot)
@@ -39,7 +39,7 @@ def main():
                          xytext = (0, 9), 
                          textcoords = 'offset points')
                          
-    plt.savefig('orbit_nlu/plot_all_configs.png')
+    plt.savefig('plot_all_configs.png')
     print("График сравнения сохранен.")
 
 if __name__ == "__main__":
