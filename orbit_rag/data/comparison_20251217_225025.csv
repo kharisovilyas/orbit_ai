@@ -1,2 +1,0 @@
-approach,total_queries,exact_match_accuracy,slot_accuracy,avg_processing_time,total_processing_time,error_distribution
-RuleBased_Baseline,10,0.0,0.0,1.8835067749023438e-06,1.8835067749023438e-05,{'Missing': 10}
