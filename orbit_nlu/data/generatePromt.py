@@ -381,7 +381,7 @@ def main():
                 unique_prompts.add(p_hash)
                 data.append(item)
     
-    output_file = "prompts_second_version.jsonl"
+    output_file = "prompts.jsonl"
     with open(output_file, "w", encoding="utf-8") as f:
         for item in data:
             f.write(json.dumps(item, ensure_ascii=False) + "\n")
