@@ -2,282 +2,391 @@ import json
 import random
 import re
 import sys
-from typing import Dict, Any, List, Optional, Tuple
-
 import pymorphy2
+from typing import Dict, Any, List, Optional, Tuple
 
 class DatasetGenerator:
     """
-    Класс для генерации датасета промптов для поиска спутников.
-    Генерирует осмысленные и грамматически корректные запросы на основе
-    предопределенных шаблонов и данных, с гарантированным минимальным
-    количеством фильтров в каждом промпте.
+    Продвинутый генератор датасета для NLU.
+    Покрывает широкий спектр грамматических конструкций, синонимов и физических параметров.
     """
 
-    def __init__(self, min_filters: int = 3):
+    def __init__(self, min_filters: int = 2):
         self.morph = pymorphy2.MorphAnalyzer()
-        # Гарантируем, что каждый промпт будет содержать не менее 3 фильтров
         self.MIN_FILTERS = min_filters
         self.ALL_FILTER_KEYS = ["orbitType", "coverage", "altitude", "mass", "status", "formFactor", "number"]
 
-        # --- Структурированные данные для генерации ---
+        # --- БАЗА ЗНАНИЙ ---
         self.DATA = {
-            "coverage": {
-                "Россия": ["российский регион", "территория РФ"],
-                "Арктика": ["арктический регион", "северный полюс"],
-                "Африка": ["африканский континент"],
-                "Китай": ["китайский регион", "территория КНР"],
-                "Европа": ["европейский регион", "территория ЕС"],
-                "Южная Америка": ["южноамериканский континент"],
-            },
-            "altitude": {
-                "<1000 км": ["<1000 км", "менее 1000 километров", "ниже 1000 км"],
-                "500-800 км": ["500-800 км", "от 500 до 800 километров", "высота 500-800 км"],
-                "~800 км": ["~800 км", "около 800 километров", "приблизительно 800 км"],
-                "~36000 км": ["~36000 км", "около 36000 километров", "высота ~36000 км"],
-                "2000-20000 км": ["2000-20000 км", "в диапазоне 2000-20000 км"],
-                "400-40000 км": ["400-40000 км", "с перигеем ~400 км и апогеем ~40000 км"],
-            },
-            "orbitType": {
-                "LEO": {"nom": "низкая околоземная орбита", "acc": "низкую околоземную орбиту", "prep": "на низкой околоземной орбите"},
-                "MEO": {"nom": "средняя околоземная орбита", "acc": "среднюю околоземную орбиту", "prep": "на средней околоземной орбите"},
-                "GEO": {"nom": "геостационарная орбита", "acc": "геостационарную орбиту", "prep": "на геостационарной орбите"},
-                "SSO": {"nom": "солнечно-синхронная орбита", "acc": "солнечно-синхронную орбиту", "prep": "на солнечно-синхронной орбите"},
-                "Molniya": {"nom": "орбита Молния", "acc": "орбиту Молния", "prep": "на орбите Молния"},
-                "HEO": {"nom": "высокая эллиптическая орбита", "acc": "высокую эллиптическую орбиту", "prep": "на высокой эллиптической орбите"},
-            },
-            "status": {
-                "активен": ["активный", "работающий", "функционирующий", "в рабочем состоянии"],
-                "неактивен": ["неактивный", "неработающий", "вышедший из строя"],
-            },
-            "formFactor": {
-                "1U": ["1U", "кубсат 1U"], "3U": ["3U", "кубсат 3U"],
-                "6U": ["6U", "кубсат 6U"], "12U": ["12U", "кубсат 12U"],
-            },
-            "request_verb": [
-                "Подбери", "Найди", "Выведи", "Покажи", "Ищи", "Предоставь", "Дай", "Предложи", "Подскажи"
-            ]
+            "coverage": [
+                # Страны и регионы
+                ("Россия", "Россия"), ("РФ", "Россия"), ("Российская Федерация", "Россия"), ("территория России", "Россия"),
+                ("США", "США"), ("Соединенные Штаты", "США"), ("Северная Америка", "Северная Америка"),
+                ("Китай", "Китай"), ("КНР", "Китай"), ("Поднебесная", "Китай"),
+                ("Европа", "Европа"), ("ЕС", "Европа"), ("Евросоюз", "Европа"), ("европейский континент", "Европа"),
+                ("Африка", "Африка"), ("африканские страны", "Африка"),
+                ("Южная Америка", "Южная Америка"), ("Латинская Америка", "Южная Америка"), ("Бразилия", "Южная Америка"),
+                ("Австралия", "Австралия"), ("Океания", "Австралия"),
+                ("Азия", "Азия"), ("Индия", "Индия"), ("Ближний Восток", "Ближний Восток"),
+                # Специфические зоны
+                ("Арктика", "Арктика"), ("Северный полюс", "Арктика"), ("Севморпуть", "Арктика"), ("заполярье", "Арктика"),
+                ("Антарктида", "Антарктида"), ("Южный полюс", "Антарктида"),
+                ("Тихий океан", "Тихий океан"), ("Атлантика", "Атлантический океан"),
+                ("Экватор", "Экватор"), ("экваториальная зона", "Экватор"),
+            ],
+            "orbitType": [
+                # (Текст, Значение) - предлоги добавляются динамически или в шаблоне
+                ("LEO", "LEO"), ("НОО", "LEO"), ("низкая околоземная орбита", "LEO"), ("низкая орбита", "LEO"),
+                ("MEO", "MEO"), ("СОО", "MEO"), ("средняя околоземная орбита", "MEO"), ("средняя орбита", "MEO"),
+                ("GEO", "GEO"), ("ГСО", "GEO"), ("геостационарная орбита", "GEO"), ("геостационар", "GEO"),
+                ("SSO", "SSO"), ("ССО", "SSO"), ("солнечно-синхронная орбита", "SSO"),
+                ("HEO", "HEO"), ("ВЭО", "HEO"), ("высокая эллиптическая орбита", "HEO"), ("высокая орбита", "HEO"),
+                ("Molniya", "Molniya"), ("орбита Молния", "Molniya"), ("молния", "Molniya"),
+                ("Polar", "Polar"), ("полярная орбита", "Polar"),
+                ("GTO", "GTO"), ("ГПО", "GTO"), ("геопереходная орбита", "GTO"),
+            ],
+            "status": [
+                ("активный", "активен"), ("рабочий", "активен"), ("живой", "активен"), ("функционирующий", "активен"), ("в строю", "активен"), ("работающий", "активен"),
+                ("неактивный", "неактивен"), ("мертвый", "неактивен"), ("списанный", "неактивен"), ("вышедший из строя", "неактивен"), ("сломанный", "неактивен"), ("мусор", "неактивен"),
+            ],
+            "formFactor": [
+                ("1U", "1U"), ("один юнит", "1U"), ("1 unit", "1U"),
+                ("2U", "2U"), ("два юнита", "2U"),
+                ("3U", "3U"), ("три юнита", "3U"), ("трехюнитовый", "3U"),
+                ("6U", "6U"), ("шесть юнитов", "6U"),
+                ("12U", "12U"), ("12 юнитов", "12U"),
+                ("16U", "16U"),
+                ("CubeSat", "CubeSat"), ("кубсат", "CubeSat"), ("наноспутник", "CubeSat"),
+                ("SmallSat", "SmallSat"), ("малый спутник", "SmallSat"), ("малый КА", "SmallSat"),
+            ],
+            "synonyms": [
+                "спутник", "аппарат", "космический аппарат", "КА", "борт", "объект", "искусственный спутник"
+            ],
+            "verbs": [
+                "Найди", "Подбери", "Покажи", "Выведи", "Ищи", "Нужен", "Требуется", "Дай список", "Есть ли", 
+                "Предоставь", "Отобрази", "Найти", "Запроси", "Сформируй список"
+            ],
+            "units": {
+                "mass": ["кг", "килограмм", "кило"],
+                "dist": ["км", "километров", "тыс. км"]
+            }
         }
 
-        # --- Правила и ограничения ---
-        self.VALIDITY_RULES = {
-            "mass_for_formFactor": {"1U": (1, 2), "3U": (4, 7), "6U": (8, 12), "12U": (20, 30)},
-            "altitude_for_orbit": {
-                "LEO": ["<1000 км", "500-800 км", "~800 км"],
-                "MEO": ["2000-20000 км"],
-                "GEO": ["~36000 км"],
-                "SSO": ["500-800 км", "~800 км"],
-                "Molniya": ["400-40000 км"],
-                "HEO": ["400-40000 км"],
-            },
-            "invalid_combinations": [
-                {"orbitType": "GEO", "coverage": "Арктика"},
-                {"orbitType": "Molniya", "coverage": "Африка"},
-            ]
-        }
-
-        # --- Шаблоны ---
-        # Формат: (текст_шаблона, [необходимые_фильтры])
+        # --- ШАБЛОНЫ ---
+        # {ключ:падеж}
+        # nomn=Им, gent=Род, datv=Дат, accs=Вин, ablt=Твор, loct=Предл
         self.TEMPLATES = [
-            # --- Шаблоны с 3 фильтрами ---
-            ("{request_verb} {satellite} для мониторинга {coverage} с высоты {altitude}.", ["number", "coverage", "altitude"]),
-            ("{request_verb} {satellite} с массой {mass} и статусом {status}.", ["number", "mass", "status"]),
-            ("Нужен {satellite} на {orbitType} для покрытия {coverage}.", ["number", "orbitType", "coverage"]),
-            ("Требуется {satellite} для {coverage} на {orbitType}.", ["number", "coverage", "orbitType"]),
-            ("Существуют ли {satellite} с массой более {mass} и статусом {status}?", ["number", "mass", "status"]),
-            ("Для высоты {altitude} подбери {satellite}, которые видят {coverage}.", ["number", "altitude", "coverage"]),
-            ("Какие есть {satellite} с форм-фактором {formFactor} для {coverage}?", ["number", "formFactor", "coverage"]),
-
-            # --- Шаблоны с 4 фильтрами ---
-            ("{request_verb} {status} {satellite} на {orbitType} для {coverage}.", ["number", "status", "orbitType", "coverage"]),
-            ("Мне нужен {satellite} с форм-фактором {formFactor}, массой {mass} для {coverage}.", ["number", "formFactor", "mass", "coverage"]),
-            ("Покажи {satellite} на {orbitType} с высотой {altitude} и статусом {status}.", ["number", "orbitType", "altitude", "status"]),
+            # Простые запросы
+            ("{verb} {number} {synonym:accs}, которые покрывают {coverage:accs}.", ["number", "coverage"]),
+            ("Нужен {synonym:nomn} для мониторинга {coverage:gent}.", ["coverage"]),
+            ("Покажи {synonym:accs}, видящий {coverage:accs}, на {orbitType:loct}.", ["coverage", "orbitType"]),
             
-            # --- Шаблон с 5 фильтрами ---
-            ("Какой {status} {satellite} с форм-фактором {formFactor} можно использовать для {coverage} на {orbitType}?", ["number", "status", "formFactor", "coverage", "orbitType"]),
+            # С параметрами физики
+            ("Ищи {synonym:accs} с массой {mass} и статусом {status:ablt}.", ["mass", "status"]),
+            ("Есть ли {synonym:nomn} весом {mass} на {orbitType:loct}?", ["mass", "orbitType"]),
+            ("Требуются {status:nomn} {synonym:nomn} {formFactor}.", ["status", "formFactor"]),
+            
+            # Сложные конструкции
+            ("Для высоты {altitude} подбери {number} {synonym:accs} типа {formFactor}.", ["altitude", "number", "formFactor"]),
+            ("Выведи список: {synonym:nomn}, регион {coverage:nomn}, орбита {orbitType:nomn}.", ["coverage", "orbitType"]),
+            ("Интересуют {synonym:nomn} на {orbitType:loct} высотой {altitude}.", ["orbitType", "altitude"]),
+            
+            # Разговорный / Краткий стиль
+            ("{orbitType:nomn}, {coverage:nomn}, {status:nomn}.", ["orbitType", "coverage", "status"]),
+            ("{synonym:nomn} {formFactor}, масса {mass}, {status:nomn}.", ["formFactor", "mass", "status"]),
+            
+            # Вопросы
+            ("Какие {synonym:nomn} летают над {coverage:ablt}?", ["coverage"]),
+            ("Сколько {status:gent} {synonym:gent} находится на {orbitType:loct}?", ["status", "orbitType", "number"]), # Тут хитро с "Сколько", number в ответе мб
+            
+            # Специфичные
+            ("{verb} {synonym:accs} с перигеем/апогеем {altitude}.", ["altitude"]),
+            ("Нужны {synonym:nomn} ({formFactor}) для работы по {coverage:datv}.", ["formFactor", "coverage"]),
         ]
-
-    def _get_random_key(self, data_key: str) -> str:
-        return random.choice(list(self.DATA[data_key].keys()))
-
-    def _get_random_value(self, data_key: str, key: str) -> str:
-        return random.choice(self.DATA[data_key][key])
-
-    def _get_random_satellite_number(self) -> int:
-        return 1 if random.random() < 0.8 else random.randint(2, 10)
-
-    def _incline_word(self, word: str, case: str) -> str:
-        """Склоняет слово или фразу в нужный падеж."""
-        p = self.morph.parse(word.split(' ')[-1])[0]
-        inflected = p.inflect({case})
-        if inflected:
-            return word.rsplit(' ', 1)[0] + ' ' + inflected.word if ' ' in word else inflected.word
-        return word
-
-    def _incline_adjective(self, adj: str, number: int, case: str) -> str:
-        """Согласует прилагательное с числом и падежом."""
-        p = self.morph.parse(adj)[0]
-        grammemes = {case}
-        grammemes.add('plur' if number > 1 else 'sing')
-        inflected = p.inflect(grammemes)
-        return inflected.word if inflected else adj
-
-    def _get_satellite_text(self, number: int, case: str) -> str:
-        """Возвращает корректную форму 'N спутник' в нужном падеже."""
-        word = "спутник"
-        parsed_word = self.morph.parse(word)[0]
-        return f"{number} {parsed_word.make_agree_with_number(number).inflect({case}).word}"
-
-    def _is_combination_valid(self, filters: Dict[str, Any]) -> bool:
-        """Проверяет, является ли комбинация фильтров физически и логически возможной."""
-        for rule in self.VALIDITY_RULES["invalid_combinations"]:
-            if all(filters.get(key) == val for key, val in rule.items()):
-                return False
-        return True
-
-    def _postprocess_prompt(self, prompt: str, filters: Dict[str, Any]) -> str:
-        """Финальная обработка промпта для улучшения читаемости и грамматики."""
-        number = int(filters.get("number", 1))
-        if "которые" in prompt and number == 1:
-            prompt = prompt.replace("которые", "который")
-            prompt = re.sub(r'(\w+ют)\b', lambda m: m.group(1)[:-2] + 'ет', prompt)
         
-        prompt = prompt.strip().capitalize()
-        prompt = re.sub(r'\s+', ' ', prompt)
-        
-        if not re.search(r'[.?!]$', prompt):
-            prompt += "?" if prompt.lower().startswith(("какие", "существуют ли")) else "."
+        # Правила для генерации логичных данных
+        self.LOGIC_RULES = {
+            "mass_limits": {"1U": (1, 2), "2U": (2, 3), "3U": (3, 6), "6U": (8, 12), "12U": (18, 25), "CubeSat": (1, 20)},
+            "orbit_alt": {
+                "LEO": (160, 2000),
+                "MEO": (2000, 35000),
+                "GEO": (35700, 35800),
+                "HEO": (500, 40000) # эллипс
+            }
+        }
 
-        return prompt
+    def _inflect_phrase(self, text: str, case: str, number: int = 1) -> str:
+        """
+        Умное склонение фразы. 
+        Учитывает, что некоторые слова (аббревиатуры) не склоняются.
+        Согласует прилагательные с существительными.
+        """
+        words = text.split()
+        res = []
+        
+        # Пытаемся найти главное существительное для согласования рода (эвристика)
+        # Обычно это последнее слово, если оно не цифра/аббревиатура
+        main_noun_tag = None
+        for w in reversed(words):
+            if not self._is_immutable(w):
+                p = self.morph.parse(w)[0]
+                if 'NOUN' in p.tag:
+                    main_noun_tag = p.tag
+                    break
+        
+        for word in words:
+            if self._is_immutable(word):
+                res.append(word)
+                continue
+            
+            p = self.morph.parse(word)[0]
+            
+            # Если число > 1, форсируем множественное число
+            # Но есть нюанс: "21 спутник" (ед.ч), "22 спутника" (ед.ч, род.п? нет, тут сложно).
+            # Для простоты в NLU датасетах, если number > 1, используем plural форму для всех,
+            # КРОМЕ случаев, когда мы явно согласуем с числительным через _agree_with_number.
+            # Здесь метод просто ставит фразу в падеж.
+            
+            grams = {case}
+            if number > 1:
+                grams.add('plur')
+                
+            inflected = p.inflect(grams)
+            
+            # Если не удалось просклонять (например, неизменяемое слово, не попавшее в фильтр)
+            res.append(inflected.word if inflected else word)
+            
+        return " ".join(res)
+
+    def _is_immutable(self, word: str) -> bool:
+        """Проверка на неизменяемые слова (аббревиатуры, латиница, цифры)."""
+        if re.match(r'^[A-Za-z0-9]+$', word): return True
+        if word.isupper() and len(word) > 1: return True # ГСО, КНР
+        return False
+
+    def _agree_with_number(self, word: str, number: int, case: str = 'nomn') -> str:
+        """
+        Согласует слово с числом и падежом всей фразы.
+        Пример: 
+        (спутник, 5, nomn) -> 5 спутников
+        (спутник, 2, gent) -> (нет) 2 спутников
+        """
+        p = self.morph.parse(word)[0]
+        
+        # Сначала согласуем с числом в именительном падеже (1 спутник, 2 спутника, 5 спутников)
+        agreed = p.make_agree_with_number(number)
+        
+        if not agreed: 
+            return f"{number} {word}"
+
+        # Если падеж фразы не именительный (например "вижу 5 спутников"), 
+        # то pymorphy make_agree_with_number возвращает форму, зависящую от числа.
+        # Но если нам нужно склонять ВСЮ группу (например "о 5 спутниках"), нужно доп. действие.
+        
+        if case == 'nomn':
+            return agreed.word
+        else:
+            # Грубая эвристика: для >1 во всех косвенных падежах используется plural
+            # кроме винительного (вижу 2 спутника vs вижу 5 спутников).
+            # Для генерации промптов достаточно поставить слово в Plural + Case, если num > 1
+            if number > 1:
+                inflected = p.inflect({'plur', case})
+            else:
+                inflected = p.inflect({case})
+            return inflected.word if inflected else word
+
+    def _generate_mass_val(self, filters) -> Tuple[str, str]:
+        """Генерирует значение фильтра массы и текст для промпта."""
+        # Определяем границы на основе форм-фактора
+        min_m, max_m = 5, 5000
+        if "formFactor" in filters:
+            ff_raw = filters["formFactor"]
+            # Ищем ключ в RULES
+            for k, limits in self.LOGIC_RULES["mass_limits"].items():
+                if k in ff_raw: # например "1U" in "1U"
+                    min_m, max_m = limits
+                    break
+        
+        val = random.randint(min_m, max_m)
+        
+        # 30% вероятность генерации диапазона
+        if random.random() > 0.7:
+            val2 = val + random.randint(5, 50)
+            filter_val = f"{val}-{val2}"
+            
+            phrases = [
+                f"от {val} до {val2}",
+                f"{val}-{val2}",
+                f"в диапазоне {val}...{val2}"
+            ]
+            text_val = random.choice(phrases)
+        else:
+            filter_val = str(val)
+            # Варианты текста
+            phrases = [
+                str(val),
+                f"около {val}",
+                f"порядка {val}",
+                f"> {val-1}", # Хитрый вариант
+            ]
+            text_val = random.choice(phrases)
+            
+        # Добавляем единицы измерения
+        unit = random.choice(self.DATA["units"]["mass"])
+        return filter_val, f"{text_val} {unit}"
+
+    def _generate_alt_val(self, filters) -> Tuple[str, str]:
+        """Генерирует высоту."""
+        min_a, max_a = 400, 36000
+        orbit = filters.get("orbitType", "")
+        if orbit in self.LOGIC_RULES["orbit_alt"]:
+            min_a, max_a = self.LOGIC_RULES["orbit_alt"][orbit]
+            
+        val = random.randint(min_a, max_a)
+        unit = random.choice(self.DATA["units"]["dist"])
+        
+        if random.random() > 0.6:
+            # Диапазон
+            val2 = val + random.randint(100, 2000)
+            filter_val = f"{val}-{val2} км"
+            text_val = f"от {val} до {val2} {unit}"
+        else:
+            # Точное (или "около")
+            filter_val = f"~{val} км"
+            prefix = random.choice(["", "около ", "примерно ", "на высоте "])
+            text_val = f"{prefix}{val} {unit}"
+            
+        return filter_val, text_val
 
     def generate_one(self) -> Optional[Dict[str, Any]]:
-        """Генерирует одну запись (промпт + фильтры)."""
+        template, req_fields = random.choice(self.TEMPLATES)
+        filters = {}
+        context = {}
         
-        # 1. Выбираем только те шаблоны, которые удовлетворяют требованию по мин. числу фильтров
-        valid_templates = [t for t in self.TEMPLATES if len(t[1]) >= self.MIN_FILTERS]
-        if not valid_templates:
-            raise ValueError("Нет шаблонов, удовлетворяющих требованию по минимальному количеству фильтров.")
+        # 1. Генерация Числа (number)
+        # Если в шаблоне есть {number} или {synonym} (который зависит от number)
+        if "number" in req_fields or "{number}" in template:
+            num = random.randint(1, 15)
+            filters["number"] = str(num)
+        else:
+            # 20% шанс, что пользователь укажет число, даже если шаблон не требует явно (implicit)
+            # Но для простоты, если шаблона нет под число, считаем 1.
+            num = 1
+            
+        context["number"] = str(num)
+        context["verb"] = random.choice(self.DATA["verbs"])
+        synonym_base = random.choice(self.DATA["synonyms"])
         
-        template, required_filters = random.choice(valid_templates)
+        # 2. Заполнение полей
+        # Сначала заполняем обязательные поля из шаблона
+        shuffled_keys = self.ALL_FILTER_KEYS.copy()
+        random.shuffle(shuffled_keys) # Случайный порядок заполнения для вариативности
         
-        # 2. Генерируем значения для этих фильтров
-        generated_filters = {}
-        
-        if "number" in required_filters:
-            generated_filters["number"] = str(self._get_random_satellite_number())
+        # Объединяем обязательные поля и случайные дополнительные (чтобы было >= MIN_FILTERS)
+        target_fields = set(req_fields)
+        while len(target_fields) < self.MIN_FILTERS and len(target_fields) < len(self.ALL_FILTER_KEYS):
+            target_fields.add(random.choice(self.ALL_FILTER_KEYS))
+            
+        for field in target_fields:
+            if field == "number": continue
+            
+            if field == "mass":
+                f_val, t_val = self._generate_mass_val(filters)
+                filters["mass"] = f_val
+                context["mass"] = t_val
+                
+            elif field == "altitude":
+                f_val, t_val = self._generate_alt_val(filters)
+                filters["altitude"] = f_val
+                context["altitude"] = t_val
+                
+            elif field in self.DATA:
+                txt, val = random.choice(self.DATA[field])
+                filters[field] = val
+                context[field] = txt
 
-        if "orbitType" in required_filters:
-            orbit = self._get_random_key("orbitType")
-            generated_filters["orbitType"] = orbit
-            if "altitude" in required_filters:
-                alt_key = random.choice(self.VALIDITY_RULES["altitude_for_orbit"][orbit])
-                generated_filters["altitude"] = alt_key
-        elif "altitude" in required_filters:
-             generated_filters["altitude"] = self._get_random_key("altitude")
+        # 3. Подстановка в шаблон
+        def replace_match(match):
+            content = match.group(1) # например "synonym:accs"
+            parts = content.split(":")
+            key = parts[0]
+            case = parts[1] if len(parts) > 1 else "nomn"
+            
+            if key == "number":
+                return str(num)
+            
+            if key == "synonym":
+                # Согласуем "спутник" с числом, потом склоняем
+                # Если падеж nomn - make_agree делает всё само.
+                # Если косвенный - нужно склонять.
+                word_agreed = self._agree_with_number(synonym_base, num, 'nomn')
+                # Если слово уже во мн.ч (5 спутников), inflect_phrase просто просклоняет его по падежу
+                return self._inflect_phrase(word_agreed, case, num)
+            
+            if key in context:
+                val_text = context[key]
+                # Особая обработка для статуса ("активные")
+                return self._inflect_phrase(val_text, case, num if key == 'status' else 1)
+            
+            return ""
 
-        if "formFactor" in required_filters:
-            ff = self._get_random_key("formFactor")
-            generated_filters["formFactor"] = ff
-            if "mass" in required_filters:
-                min_m, max_m = self.VALIDITY_RULES["mass_for_formFactor"][ff]
-                generated_filters["mass"] = str(random.randint(min_m, max_m))
-        elif "mass" in required_filters:
-            generated_filters["mass"] = str(random.randint(5, 50))
-        
-        for key in ["coverage", "status"]:
-            if key in required_filters:
-                 generated_filters[key] = self._get_random_key(key)
+        # Если в шаблоне есть поле, которого нет в фильтрах (например, шаблон требует mass, а мы её не сгенерировали по ошибке),
+        # скрипт упадет. Но мы выше заполнили target_fields на основе req_fields.
+        # Однако, target_fields - это множество. А req_fields - список из шаблона.
+        # Проверим, все ли поля из шаблона есть в context.
+        for req in req_fields:
+            if req not in context and req != "number":
+                # Fallback: генерируем на лету
+                if req in self.DATA:
+                    t, v = random.choice(self.DATA[req])
+                    filters[req] = v
+                    context[req] = t
 
-        # 3. Проверяем комбинацию на валидность
-        if not self._is_combination_valid(generated_filters):
-            return None
+        prompt = re.sub(r'{([\w:]+)}', replace_match, template)
+        
+        # Очистка
+        prompt = re.sub(r'\s+', ' ', prompt).strip()
+        # Капитализация первого слова
+        prompt = prompt[0].upper() + prompt[1:]
+        
+        # Исправление пунктуации (если шаблон заканчивается некрасиво)
+        if not prompt.endswith(('.', '?', '!')):
+            prompt += "?" if any(x in prompt.lower() for x in ["какие", "сколько", "есть ли"]) else "."
 
-        # 4. Собираем промпт
-        prompt = template
-        text_values = {}
-        
-        case_map = {'для': 'gent', 'с': 'ablt', 'на': 'loct', 'в': 'loct', 'по': 'datv'}
-        
-        for key, value in generated_filters.items():
-            case = 'nomn'
-            match = re.search(r'(\b\w+\b)\s+{\s*' + key + r'\s*}', prompt)
-            if match and match.group(1).lower() in case_map:
-                case = case_map[match.group(1).lower()]
-
-            if key == 'number':
-                text_values['satellite'] = self._get_satellite_text(int(value), 'accs')
-            elif key == 'coverage':
-                base_word = random.choice([value] + self.DATA['coverage'][value])
-                text_values['coverage'] = self._incline_word(base_word, case)
-            elif key == 'orbitType':
-                text_values['orbitType'] = self.DATA['orbitType'][value]['prep']
-            elif key == 'altitude':
-                text_values['altitude'] = self._get_random_value('altitude', value)
-            elif key == 'mass':
-                text_values['mass'] = f"{value} кг"
-            elif key == 'formFactor':
-                text_values['formFactor'] = self._get_random_value('formFactor', value)
-            elif key == 'status':
-                base_status = self._get_random_value('status', value)
-                num = int(generated_filters.get("number", 1))
-                text_values['status'] = self._incline_adjective(base_status.split()[0], num, 'nomn')
-        
-        text_values['request_verb'] = random.choice(self.DATA['request_verb'])
-        
-        prompt = prompt.format(**text_values)
-        
-        # 5. Пост-обработка
-        prompt = self._postprocess_prompt(prompt, generated_filters)
-
-        # 6. Формирование финального объекта
-        final_filters = {key: "" for key in self.ALL_FILTER_KEYS}
-        final_filters.update(generated_filters)
+        # Формируем итоговый JSON (заполняем пропуски)
+        final_filters = {k: filters.get(k, "") for k in self.ALL_FILTER_KEYS}
 
         return {"prompt": prompt, "filters": final_filters}
 
 def main():
     try:
         count = int(sys.argv[1]) if len(sys.argv) > 1 else 500
-    except (ValueError, IndexError):
+    except:
         count = 500
-        print(f"Неверный аргумент. Будет сгенерировано {count} записей.")
 
-    # Создаем экземпляр генератора с требованием минимум 3 фильтра
-    generator = DatasetGenerator(min_filters=3)
-    seen_prompts = set()
-    dataset = []
+    gen = DatasetGenerator(min_filters=2)
+    data = []
+    unique_prompts = set()
     
-    max_attempts = count * 20
+    print(f"Генерация {count} уникальных примеров...")
+    
     attempts = 0
-
-    print(f"Генерация {count} записей (минимум 3 фильтра в каждой)...")
-    
-    while len(dataset) < count and attempts < max_attempts:
+    while len(data) < count and attempts < count * 5:
         attempts += 1
-        record = generator.generate_one()
-        
-        if record:
-            prompt_key = record['prompt'].lower()
-            if prompt_key not in seen_prompts:
-                seen_prompts.add(prompt_key)
-                dataset.append(record)
-                
-                progress = len(dataset) / count
-                bar_length = 40
-                filled_length = int(bar_length * progress)
-                bar = '█' * filled_length + '-' * (bar_length - filled_length)
-                sys.stdout.write(f"\rПрогресс: |{bar}| {len(dataset)}/{count} ({progress:.0%})")
-                sys.stdout.flush()
-
-    print("\nГенерация завершена.")
-
-    output_filename = "prompts.jsonl"
-    with open(output_filename, "w", encoding="utf-8") as f:
-        for entry in dataset:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-
-    print(f"Сохранено {len(dataset)} уникальных записей в файл '{output_filename}'.")
-    print(f"Всего попыток: {attempts}.")
+        item = gen.generate_one()
+        if item:
+            # Дедупликация по тексту промпта
+            p_hash = item['prompt'].lower()
+            if p_hash not in unique_prompts:
+                unique_prompts.add(p_hash)
+                data.append(item)
+    
+    output_file = "prompts_generated.txt"
+    with open(output_file, "w", encoding="utf-8") as f:
+        for item in data:
+            f.write(json.dumps(item, ensure_ascii=False) + "\n")
+            
+    print(f"Готово! Сгенерировано {len(data)} примеров. Сохранено в {output_file}")
 
 if __name__ == "__main__":
     main()
