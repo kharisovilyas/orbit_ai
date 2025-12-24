@@ -1,257 +1,196 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-train2.py
-Скрипт для параметрического запуска обучения (SFT + LoRA/QLoRA).
-Принимает гиперпараметры через аргументы CLI для проведения экспериментов.
-Использует датасет prompts2.jsonl.
+train2.py: Финальное обучение лучшей модели (Config 2).
+Параметры зафиксированы на основе экспериментальной таблицы:
+- LoRA Rank: 32
+- Quantization: 4-bit (nf4)
+- Learning Rate: 1e-4
+- Warmup: 0.03
 """
 
 import os
 import sys
 import json
 import yaml
-import argparse
+import random
 import logging
-import random  # <--- ДОБАВЛЕНО
-import torch
-import numpy as np
-from typing import Dict, List, Tuple
-from sklearn.metrics import f1_score
+import inspect
+from pathlib import Path
+from typing import Dict, Tuple, Optional
 
+import torch
 from datasets import Dataset
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
     BitsAndBytesConfig,
     TrainingArguments,
-    Trainer,
-    DataCollatorForSeq2Seq
 )
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training, TaskType
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from trl import SFTTrainer 
 
-# Настройка логирования
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
-logger = logging.getLogger("train2")
+# Логирование
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger("orbit-nlu-train-v2")
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="Hyperparameter tuning for LoRA")
-    
-    # Гиперпараметры эксперимента
-    parser.add_argument("--lora_r", type=int, default=16, help="LoRA Rank")
-    parser.add_argument("--quantization", type=str, choices=["fp16", "nf4"], default="nf4", help="FP16 (LoRA) or NF4 (QLoRA)")
-    parser.add_argument("--learning_rate", type=float, default=1e-4)
-    parser.add_argument("--warmup_ratio", type=float, default=0.03)
-    parser.add_argument("--weight_decay", type=float, default=0.0)
-    
-    # Системные параметры
-    parser.add_argument("--output_dir", type=str, default="outputs2/exp_default")
-    parser.add_argument("--dataset_path", type=str, default="data/prompts2.jsonl")
-    parser.add_argument("--model_name", type=str, default=None, help="Если не задано, берется из config.yaml")
-    
-    return parser.parse_args()
+# --- ГИПЕРПАРАМЕТРЫ CONFIG 2 ---
+BEST_PARAMS = {
+    "lora_r": 32,
+    "lora_alpha": 64,
+    "lora_dropout": 0.05,
+    "learning_rate": 0.0001,
+    "warmup_ratio": 0.03,
+    "weight_decay": 0.0,
+    "batch_size": 2,
+    "grad_accum": 4,
+    "epochs": 3
+}
 
-def load_config():
-    """Загрузка базового конфига для промптов и имени модели."""
-    if os.path.exists("config.yaml"):
-        with open("config.yaml", "r", encoding="utf-8") as f:
-            return yaml.safe_load(f)
+def read_yaml(path: str) -> Dict:
+    # Пытаемся найти конфиг
+    paths = [Path(path), Path("orbit_nlu") / path]
+    for p in paths:
+        if p.exists():
+            with open(p, "r", encoding="utf-8") as f:
+                return yaml.safe_load(f)
+    logger.warning("Config.yaml не найден, используем дефолтные настройки путей.")
     return {}
 
-def fix_json(text):
-    try:
-        start = text.find('{')
-        end = text.rfind('}') + 1
-        if start != -1 and end != 0:
-            return json.loads(text[start:end])
-        return {}
-    except:
-        return {}
+def format_example(example: Dict, system_prompt: str, prompt_template: str) -> Dict:
+    user = example["prompt"]
+    target_json = json.dumps(example["filters"], ensure_ascii=False)
+    text = prompt_template.format(system_prompt=system_prompt, user=user)
+    return {"text": text, "labels_raw": target_json}
 
-def calculate_metrics_custom(model, tokenizer, dataset, device):
-    """
-    Ручной подсчет метрик: JSON Validity, Exact Match, Slot-F1.
-    """
-    model.eval()
-    valid_count = 0
-    exact_match = 0
-    y_true_flat = []
-    y_pred_flat = []
-    
-    # Ключи для F1
-    keys = ["orbitType", "coverage", "altitude", "mass", "status", "formFactor", "number"]
-    
-    logger.info("Начало валидации...")
-    prompts = dataset["text_prompt"] # Мы сохраним чистый промпт при создании датасета
-    gts = dataset["labels_json"]
-    
-    # Инференс батчами (по 1 для надежности в eval)
-    for i in range(len(prompts)):
-        prompt = prompts[i]
-        gt = gts[i]
-        
-        inputs = tokenizer(prompt, return_tensors="pt").to(device)
-        with torch.no_grad():
-            outputs = model.generate(**inputs, max_new_tokens=256, do_sample=False)
-        
-        generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        # Отрезаем промпт из ответа, если модель его повторила (хотя skip_special_tokens часто помогает)
-        # Llama часто повторяет промпт, поэтому ищем маркер ответа или вырезаем начало
-        if "**Ответ:**" in generated_text:
-            response = generated_text.split("**Ответ:**")[-1].strip()
+def build_dataset(path: str, system_prompt: str, prompt_template: str, split_ratio: float = 0.95) -> Tuple[Dataset, Optional[Dataset]]:
+    data = []
+    # Проверка существования файла
+    if not os.path.exists(path):
+        # Фолбек на старый файл, если prompts2 нет
+        alt_path = path.replace("prompts2.jsonl", "prompts.jsonl")
+        if os.path.exists(alt_path):
+            logger.warning(f"Файл {path} не найден. Используем {alt_path}")
+            path = alt_path
         else:
-            # Fallback: просто пытаемся найти JSON в тексте
-            response = generated_text
-        
-        # 1. Validity
-        try:
-            pred_json = fix_json(response)
-            if pred_json:
-                valid_count += 1
-        except:
-            pred_json = {}
+            raise FileNotFoundError(f"Не найден датасет по пути: {path}")
 
-        # Нормализация для сравнения
-        norm_pred = {k: str(pred_json.get(k, "")).strip() for k in keys}
-        norm_gt = {k: str(gt.get(k, "")).strip() for k in keys}
-        
-        # 2. Exact Match
-        if norm_pred == norm_gt:
-            exact_match += 1
-            
-        # 3. Data for F1
-        for k in keys:
-            y_true_flat.append(norm_gt[k])
-            y_pred_flat.append(norm_pred[k])
-
-    total = len(dataset)
-    metrics = {
-        "json_validity": valid_count / total if total > 0 else 0,
-        "exact_match": exact_match / total if total > 0 else 0,
-        "slot_f1": f1_score(y_true_flat, y_pred_flat, average='macro', zero_division=0)
-    }
-    return metrics
-
-def main():
-    args = parse_args()
-    cfg = load_config()
-    
-    model_id = args.model_name if args.model_name else cfg.get("model_name", "meta-llama/Llama-3.1-8B-Instruct")
-    system_prompt = cfg.get("system_prompt", "Ты помощник.")
-    
-    # 1. Токенизатор
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
-    tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.padding_side = "right"
-
-    # 2. Подготовка модели (Quantization)
-    bnb_config = None
-    torch_dtype = torch.float16
-    
-    if args.quantization == "nf4":
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_compute_dtype=torch.float16
-        )
-    
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id,
-        quantization_config=bnb_config,
-        torch_dtype=torch_dtype,
-        device_map="auto"
-    )
-
-    if args.quantization == "nf4":
-        model = prepare_model_for_kbit_training(model)
-
-    # 3. LoRA Config
-    peft_config = LoraConfig(
-        r=args.lora_r,
-        lora_alpha=args.lora_r * 2,
-        lora_dropout=0.05,
-        bias="none",
-        task_type="CAUSAL_LM",
-        target_modules=["q_proj", "v_proj", "k_proj", "o_proj"]
-    )
-    
-    model = get_peft_model(model, peft_config)
-
-    # 4. Датасет
-    def format_ds(sample):
-        prompt_text = f"{system_prompt}\n\n**Запрос:** {sample['prompt']}\n\n**Ответ:**"
-        json_text = json.dumps(sample['filters'], ensure_ascii=False)
-        full_text = prompt_text + " " + json_text
-        
-        tokenized = tokenizer(full_text, truncation=True, max_length=512, padding="max_length")
-        tokenized["labels"] = tokenized["input_ids"].copy()
-        
-        tokenized["text_prompt"] = prompt_text
-        tokenized["labels_json"] = sample['filters']
-        return tokenized
-
-    raw_data = []
-    with open(args.dataset_path, "r", encoding="utf-8") as f:
+    with open(path, "r", encoding="utf-8") as f:
         for line in f:
             if line.strip():
-                raw_data.append(json.loads(line))
-    
-    # Сплит
-    random.seed(42) # Теперь это сработает
-    random.shuffle(raw_data)
-    split_idx = int(len(raw_data) * 0.9)
-    train_data = raw_data[:split_idx]
-    val_data = raw_data[split_idx:]
-    
-    train_ds = Dataset.from_list(train_data).map(format_ds)
-    eval_ds = Dataset.from_list(val_data).map(format_ds)
-    
-    train_ds_formatted = train_ds.remove_columns(["prompt", "filters", "text_prompt", "labels_json"])
+                ex = json.loads(line)
+                data.append(format_example(ex, system_prompt, prompt_template))
 
-    # 5. Аргументы обучения
-    training_args = TrainingArguments(
-        output_dir=args.output_dir,
-        per_device_train_batch_size=2,
-        gradient_accumulation_steps=4,
-        num_train_epochs=1,
-        learning_rate=args.learning_rate,
-        weight_decay=args.weight_decay,
-        warmup_ratio=args.warmup_ratio,
-        logging_steps=10,
-        save_strategy="no",
-        fp16=(args.quantization == "fp16"),
-        bf16=False,
-        optim="paged_adamw_8bit",
-        report_to="none"
-    )
-
-    trainer = Trainer(
-        model=model,
-        args=training_args,
-        train_dataset=train_ds_formatted,
-        tokenizer=tokenizer,
-        data_collator=DataCollatorForSeq2Seq(tokenizer, pad_to_multiple_of=8, return_tensors="pt", padding=True)
-    )
-
-    # 6. Обучение
-    trainer.train()
-
-    # 7. Валидация
-    metrics = calculate_metrics_custom(model, tokenizer, eval_ds, model.device)
+    random.shuffle(data)
+    # Для финального обучения берем почти все данные в train, оставляем крохи для val
+    split_idx = int(len(data) * split_ratio)
+    train = Dataset.from_list(data[:split_idx])
+    val = Dataset.from_list(data[split_idx:]) if split_idx < len(data) else None
     
-    results = {
-        "lora_r": args.lora_r,
-        "quantization": args.quantization,
-        "learning_rate": args.learning_rate,
-        "warmup_ratio": args.warmup_ratio,
-        "weight_decay": args.weight_decay,
-        "json_validity": metrics["json_validity"],
-        "exact_match": metrics["exact_match"],
-        "slot_f1": metrics["slot_f1"]
-    }
-    
-    print(f"__RESULT_JSON__{json.dumps(results)}__RESULT_JSON__")
+    logger.info(f"Датасет '{path}': Train={len(train)}, Val={len(val) if val else 0}")
+    return train, val
+
+def main():
+    try:
+        # 1. Читаем конфиг только ради путей (model_name, dataset_path)
+        cfg = read_yaml("config.yaml")
+        
+        # Переопределяем параметры "Лучшей модели"
+        model_name = cfg.get("model_name", "meta-llama/Meta-Llama-3-8B-Instruct")
+        
+        # Пути к файлам версии 2
+        dataset_path = "orbit_nlu/data/prompts2.jsonl"
+        output_dir = "outputs2/orbit-nlu-best-rank32" # Новая папка
+        
+        system_prompt = cfg.get("system_prompt", "You are an AI assistant.")
+        prompt_tmpl = cfg.get("prompt_template", "{system_prompt}\nUser: {user}\nAnswer:")
+        
+        # 2. Токенизатор
+        tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+        if tokenizer.pad_token is None: tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.padding_side = 'right' # Важно для SFTTrainer
+        
+        # 3. Квантование 4-bit (NF4) - Как в таблице результатов
+        quant_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16
+        )
+        logger.info("Используется 4-bit NF4 квантование (как в Best Config).")
+
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            device_map="auto",
+            quantization_config=quant_config,
+            # use_cache=False нужно для обучения (gradient checkpointing)
+            use_cache=False 
+        )
+        model = prepare_model_for_kbit_training(model)
+
+        # 4. LoRA Config (Rank 32)
+        peft_config = LoraConfig(
+            r=BEST_PARAMS["lora_r"],
+            lora_alpha=BEST_PARAMS["lora_alpha"],
+            lora_dropout=BEST_PARAMS["lora_dropout"],
+            target_modules=["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"], # Обучаем все линейные слои для качества
+            task_type="CAUSAL_LM",
+            bias="none"
+        )
+        
+        # 5. Датасет
+        train_ds, val_ds = build_dataset(dataset_path, system_prompt, prompt_tmpl)
+
+        # 6. Параметры обучения
+        training_args = TrainingArguments(
+            output_dir=output_dir,
+            num_train_epochs=BEST_PARAMS["epochs"],
+            per_device_train_batch_size=BEST_PARAMS["batch_size"],
+            gradient_accumulation_steps=BEST_PARAMS["grad_accum"],
+            learning_rate=BEST_PARAMS["learning_rate"],
+            weight_decay=BEST_PARAMS["weight_decay"],
+            warmup_ratio=BEST_PARAMS["warmup_ratio"],
+            fp16=False,
+            bf16=True, # Используем bfloat16 для стабильности Llama 3
+            logging_steps=10,
+            save_strategy="steps",
+            save_steps=100,
+            eval_strategy="no", # Экономим время, валидацию сделали в evaluate_ft.py
+            report_to="none",
+            optim="paged_adamw_8bit", # Экономит память
+            gradient_checkpointing=True,
+        )
+
+        # 7. Запуск SFTTrainer
+        logger.info(f"Начинаем обучение с параметрами: {BEST_PARAMS}")
+        
+        trainer = SFTTrainer(
+            model=model,
+            tokenizer=tokenizer,
+            train_dataset=train_ds,
+            dataset_text_field="text", # Поле с полным текстом
+            max_seq_length=512,
+            peft_config=peft_config,
+            args=training_args,
+            packing=False, # True может ускорить, но усложняет
+        )
+
+        trainer.train()
+
+        # 8. Сохранение
+        logger.info(f"Сохраняем финальную модель в {output_dir}")
+        trainer.model.save_pretrained(output_dir)
+        tokenizer.save_pretrained(output_dir)
+        
+        # Сохраняем мету о конфиге
+        with open(os.path.join(output_dir, "training_params.json"), "w") as f:
+            json.dump(BEST_PARAMS, f, indent=4)
+            
+        logger.info("ГОТОВО! Можно запускать evaluate_ft.py с новым путем.")
+
+    except Exception as e:
+        logger.exception(f"Критическая ошибка: {e}")
+        raise
 
 if __name__ == "__main__":
     main()

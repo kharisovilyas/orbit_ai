@@ -26,6 +26,7 @@ prompt_template: |
   **Ответ:**
 
 output_dir: "outputs/orbit-nlu-lora"
+output2_dir: "outputs2/orbit-nlu-lora"
 num_train_epochs: 5        # вместо 20
 
 
