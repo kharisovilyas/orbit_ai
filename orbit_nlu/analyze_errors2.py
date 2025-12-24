@@ -142,11 +142,11 @@ def main():
     cfg = load_cfg()
     base_model_name = cfg.get("model_name")
     # Пробуем найти путь к адаптеру
-    possible_dirs = [Path(cfg.get("output_dir2")), cfg.get("output_dir2")]
+    possible_dirs = [Path(cfg.get("output2_dir")), cfg.get("output2_dir")]
     adapter_path = next((p for p in possible_dirs if p.exists()), None)
 
     if not adapter_path:
-        logger.error(f"Адаптер не найден! Проверьте путь в config.yaml: {cfg.get('output_dir2')}")
+        logger.error(f"Адаптер не найден! Проверьте путь в config.yaml: {cfg.get('output2_dir')}")
         return
 
     # 2. Загрузка модели (4-bit для экономии памяти)
