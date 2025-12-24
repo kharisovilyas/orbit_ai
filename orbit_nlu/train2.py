@@ -49,7 +49,7 @@ BEST_PARAMS = {
 
 def read_yaml(path: str) -> Dict:
     # Пытаемся найти конфиг
-    paths = [Path(path), Path("orbit_nlu") / path]
+    paths = [Path(path), path]
     for p in paths:
         if p.exists():
             with open(p, "r", encoding="utf-8") as f:
@@ -99,7 +99,7 @@ def main():
         model_name = cfg.get("model_name", "meta-llama/Meta-Llama-3-8B-Instruct")
         
         # Пути к файлам версии 2
-        dataset_path = "orbit_nlu/data/prompts2.jsonl"
+        dataset_path = "data/prompts2.jsonl"
         output_dir = "outputs2/orbit-nlu-best-rank32" # Новая папка
         
         system_prompt = cfg.get("system_prompt", "You are an AI assistant.")
