@@ -1,6 +1,7 @@
 import requests
 import json
 import openai
+import os
 
 # ========================= НАСТРОЙКИ =========================
 
@@ -12,63 +13,10 @@ GROQ_MODEL = "llama-3.3-70b-versatile"  # Быстрая и мощная мод�
 import openai
 client = openai.OpenAI(
     base_url="https://api.groq.com/openai/v1",
-    api_key=GROQ_API_KEY,
+    #api_key=GROQ_API_KEY,
+    api_key=os.getenv("GROQ_API_KEY", "")
 )
 # ===========================================================
-
-# REWRITE_PROMPT = """
-# Перефразируй запрос так, чтобы он максимально точно передавал задачу выбора спутника.
-# Уточни: тип орбиты, массу, форм-фактор, статус, покрытие.
-# Не добавляй новые данные — только переформулируй существующие.
-# Не придумывай значения, которых нет в исходном запросе.
-# Сохрани исходный смысл полностью.
-#
-# Исходный запрос:
-# {query}
-#
-# Перефразированный запрос:
-# """
-
-# def rewrite_query(query: str) -> str:
-#     if not query.strip():
-#         return query
-#
-#     full_prompt = REWRITE_PROMPT.format(query=query.strip())
-#
-#     payload = {
-#         "contents": [{"parts": [{"text": full_prompt}]}],
-#         "generationConfig": {
-#             "temperature": 0.3,
-#             "maxOutputTokens": 150
-#         }
-#     }
-#
-#     headers = {"Content-Type": "application/json"}
-#
-#     try:
-#         response = requests.post(GEMINI_URL, headers=headers, json=payload, timeout=30)
-#         response.raise_for_status()
-#         data = response.json()
-#
-#         candidates = data.get("candidates", [])
-#         if not candidates:
-#             return query
-#
-#         text_parts = candidates[0].get("content", {}).get("parts", [])
-#         rewritten = "".join(part.get("text", "") for part in text_parts).strip()
-#
-#         if rewritten.lower().startswith("перефразированный запрос"):
-#             rewritten = rewritten.split(":", 1)[1].strip()
-#
-#         return rewritten or query
-#
-#     except requests.exceptions.HTTPError as e:
-#         print(f"Ошибка Gemini API ({e.response.status_code}): {e.response.text}")
-#         return query
-#     except Exception as e:
-#         print(f"Ошибка при обращении к Gemini API: {e}")
-#         return query
-#
 
 def rewrite_query(query: str) -> str:
     try:
@@ -100,7 +48,7 @@ if __name__ == "__main__":
         "Выведи спутник с покрытием Европы и статусом активен"
     ]
 
-    print("Тестирование перефразирования через Google Gemini\n")
+    print("Тестирование перефразирования через api llm\n")
     print("=" * 80)
 
     for i, q in enumerate(test_queries, 1):
