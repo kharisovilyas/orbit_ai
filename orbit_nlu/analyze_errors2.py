@@ -142,7 +142,7 @@ def main():
     cfg = load_cfg()
     base_model_name = cfg.get("model_name")
     # Пробуем найти путь к адаптеру
-    possible_dirs = [Path(cfg.get("output_dir")), Path("orbit_nlu") / cfg.get("output_dir")]
+    possible_dirs = [Path(cfg.get("output_dir")), cfg.get("output_dir")]
     adapter_path = next((p for p in possible_dirs if p.exists()), None)
 
     if not adapter_path:
@@ -177,8 +177,7 @@ def main():
     # 3. Подготовка данных
     # Пытаемся найти prompts.jsonl
     data_paths = [
-        Path("orbit_nlu/data/prompts.jsonl"),
-        Path("data/prompts.jsonl"),
+        Path("data/prompts2.jsonl"),
         Path("prompts.jsonl")
     ]
     data_path = next((p for p in data_paths if p.exists()), None)
@@ -258,7 +257,7 @@ def main():
 
     # 5. Сохранение результатов
     df = pd.DataFrame(results)
-    output_csv = "orbit_nlu/errors_analysis_report.csv"
+    output_csv = "errors_analysis_report.csv"
     df.to_csv(output_csv, index=False, encoding='utf-8-sig')
     
     accuracy = exact_match_count / len(test_set)
